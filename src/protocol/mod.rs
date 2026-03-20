@@ -1,3 +1,4 @@
+use std::fmt::format;
 use anyhow::{Result, anyhow};
 
 pub fn parse_command(buffer: &[u8]) -> Result<(Vec<String>, usize)> {
@@ -59,6 +60,11 @@ pub fn new_redisk_protocol(resp_version: u8) -> RediskProtocol {
 impl RediskProtocol {
     pub fn serialize_simple_string(&self, str: &String) -> Vec<u8> {
         format!("+{}\r\n", str).into_bytes()
+    }
+
+    pub fn serialize_array(&self, arr: &Vec<Vec<u8>>) -> Vec<u8> {
+        let mut array_items = arr.join("\r\n");
+        format!("*{}\r\n{}", arr.len(), array_items).into_bytes()
     }
 
     pub fn serialize_ok(&self) -> Vec<u8> {
