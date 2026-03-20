@@ -63,7 +63,10 @@ impl RediskProtocol {
     }
 
     pub fn serialize_array(&self, arr: &Vec<Vec<u8>>) -> Vec<u8> {
-        let mut array_items = arr.join("\r\n");
+        let mut array_items = String::new();
+        for item in arr {
+            array_items.push_str(&String::from_utf8_lossy(item));
+        }
         format!("*{}\r\n{}", arr.len(), array_items).into_bytes()
     }
 
