@@ -44,29 +44,47 @@ fn read_line(data: &[u8]) -> Result<(String, usize)> {
     Err(anyhow!("No CRLF found"))
 }
 
-pub fn serialize_ok() -> Vec<u8> {
-    b"+OK\r\n".to_vec()
+pub struct RediskProtocol {
+    ok: String,
+    resp_version: u8,
 }
 
-pub fn serialize_null() -> Vec<u8> {
-    b"$-1\r\n".to_vec()
+pub fn new_redisk_protocol(resp_version: u8) -> RediskProtocol {
+    RediskProtocol {
+        ok: String::from("OK"),
+        resp_version
+    }
 }
 
-pub fn serialize_error(msg: &str) -> Vec<u8> {
-    format!("-ERR {}\r\n", msg).into_bytes()
+impl RediskProtocol {
+    pub fn serialize_simple_string(&self, str: &String) -> Vec<u8> {
+        format!("+{}\r\n", str).into_bytes()
+    }
+
+    pub fn serialize_ok(&self) -> Vec<u8> {
+        self.serialize_simple_string(&self.ok)
+    }
+
+    pub fn serialize_null(&self) -> Vec<u8> {
+        match self.resp_version {
+            3 => b"_\r\n".to_vec(),
+            _ => b"$-1\r\n".to_vec(),
+        }
+    }
+
+    pub fn serialize_error(&self, msg: &str) -> Vec<u8> {
+        format!("-ERR {}\r\n", msg).into_bytes()
+    }
+
+    pub fn serialize_bulk_string(&self, s: &str) -> Vec<u8> {
+        format!("${}\r\n{}\r\n", s.len(), s).into_bytes()
+    }
+
+    pub fn serialize_integer(&self, i: i64) -> Vec<u8> {
+        format!(":{}\r\n", i).into_bytes()
+    }
 }
 
-pub fn serialize_bulk(s: &str) -> Vec<u8> {
-    format!("${}\r\n{}\r\n", s.len(), s).into_bytes()
-}
-
-pub fn serialize_integer(i: i64) -> Vec<u8> {
-    format!(":{}\r\n", i).into_bytes()
-}
-
-pub fn serialize_pong() -> Vec<u8> {
-    b"+PONG\r\n".to_vec()
-}
 
 #[cfg(test)]
 mod tests {
