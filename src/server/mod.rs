@@ -38,19 +38,19 @@ impl RedisServer {
 
         commands.insert(
             "GET".to_string(),
-            Box::new(|args, storage, cache| Box::pin(handle_get(args, storage, cache))),
+            Box::new(|context| Box::pin(handle_get(context))),
         );
         commands.insert(
             "SET".to_string(),
-            Box::new(|args, storage, cache| Box::pin(handle_set(args, storage, cache))),
+            Box::new(|context| Box::pin(handle_set(context))),
         );
         commands.insert(
             "DEL".to_string(),
-            Box::new(|args, storage, cache| Box::pin(handle_del(args, storage, cache))),
+            Box::new(|context| Box::pin(handle_del(context))),
         );
         commands.insert(
             "PING".to_string(),
-            Box::new(|args, storage, cache| Box::pin(handle_ping(args, storage, cache))),
+            Box::new(|context| Box::pin(handle_ping(context))),
         );
 
         Self {
@@ -89,7 +89,7 @@ async fn handle_connection(
       redisk_protocol: &new_redisk_protocol(2),
         args: vec![],
         storage: &storage,
-        memory: &Arc::new(()),
+        memory: &cache,
     };
     loop {
         let n = socket.read(&mut buffer).await?;
@@ -99,11 +99,12 @@ async fn handle_connection(
 
         match parse_command(&buffer[..n]) {
             Ok((args, _)) => {
-                let response = handle_command(args, &storage, &cache, &commands).await;
+                context.args = args;
+                let response = handle_command(&context, &commands).await;
                 socket.write_all(&response).await?;
             }
             Err(e) => {
-                let error_msg = serialize_error(&e.to_string());
+                let error_msg = context.redisk_protocol.serialize_error(&e.to_string());
                 socket.write_all(&error_msg).await?;
             }
         }
@@ -111,19 +112,17 @@ async fn handle_connection(
 }
 
 async fn handle_command(
-    args: Vec<String>,
-    storage: &Arc<Mutex<StorageEngine>>,
-    cache: &Arc<CacheLayer>,
+    context: &RediskCommandContext<'_>,
     commands: &HashMap<String, CommandHandler>,
 ) -> Vec<u8> {
-    if args.is_empty() {
-        return serialize_error("empty command");
+    if context.args.is_empty() {
+        return context.redisk_protocol.serialize_error("empty command");
     }
 
-    let cmd_name = args[0].to_uppercase();
+    let cmd_name = context.args[0].to_uppercase();
     if let Some(handler) = commands.get(&cmd_name) {
-        handler(args, storage, cache).await
+        handler(context).await
     } else {
-        serialize_error(&format!("unknown command '{}'", cmd_name))
+        context.redisk_protocol.serialize_error(&format!("unknown command '{}'", cmd_name))
     }
 }
