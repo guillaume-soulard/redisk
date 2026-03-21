@@ -1,5 +1,4 @@
-use std::fmt::format;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 pub fn parse_command(buffer: &[u8]) -> Result<(Vec<String>, usize)> {
     if buffer.is_empty() {

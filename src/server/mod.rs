@@ -1,21 +1,63 @@
 mod commands;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use crate::storage::StorageEngine;
 use crate::cache::CacheLayer;
 use crate::protocol::*;
 use crate::server::commands::*;
-use std::sync::{Arc, Mutex};
+use crate::storage::StorageEngine;
+use anyhow::{Error, Result};
+use bincode::ErrorKind;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use anyhow::Result;
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 
 struct RediskCommandContext<'a> {
     redisk_protocol: &'a RediskProtocol,
     args: Vec<String>,
     storage: &'a Arc<Mutex<StorageEngine>>,
     memory: &'a Arc<CacheLayer>,
+}
+
+impl RediskCommandContext<'_> {
+    pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        match self.memory.get(key) {
+            Some(value) => Ok(Some(value)),
+            None => {
+                match self.storage.lock() {
+                    Ok(mut storage) => match storage.get(key) {
+                        Ok(value) => Ok(value),
+                        Err(err) => Err(err),
+                    },
+                    Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
+                }
+            },
+        }
+    }
+
+    pub fn set(&self, key: &str, value: &Vec<u8>) -> Result<()> {
+        match self.storage.lock() {
+            Ok(mut storage) => match storage.set(key.to_string(), value.clone()) {
+                Ok(_) => {
+                    self.memory.set(key.to_string(), value.clone());
+                    Ok(())
+                },
+                Err(err) => Err(Error::new(ErrorKind::Custom(String::from(err.to_string())))),
+            },
+            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
+        }
+    }
+
+    pub fn delete(&self, key: &str) -> Result<()> {
+        self.memory.delete(key);
+        match self.storage.lock() {
+            Ok(mut storage) => match storage.delete(key) {
+                Ok(_) => Ok(()),
+                Err(err) => Err(Error::new(ErrorKind::Custom(String::from(err.to_string())))),
+            },
+            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
+        }
+    }
 }
 
 type CommandHandler = Box<
