@@ -6,8 +6,6 @@ use crate::storage::StorageEngine;
 use anyhow::{Error, Result};
 use bincode::ErrorKind;
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -60,41 +58,15 @@ impl RediskCommandContext<'_> {
     }
 }
 
-type CommandHandler = Box<
-    dyn for<'a> Fn(
-            &'a RediskCommandContext,
-        ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'a>>
-        + Send
-        + Sync,
->;
-
 pub struct RedisServer {
     storage: Arc<Mutex<StorageEngine>>,
     cache: Arc<CacheLayer>,
-    commands: Arc<HashMap<String, CommandHandler>>,
+    commands: Arc<HashMap<String, Box<dyn Command>>>,
 }
 
 impl RedisServer {
     pub fn new(storage: StorageEngine, cache_size: usize) -> Self {
-        let mut commands: HashMap<String, CommandHandler> = HashMap::new();
-
-        commands.insert(
-            "GET".to_string(),
-            Box::new(|context| Box::pin(handle_get(context))),
-        );
-        commands.insert(
-            "SET".to_string(),
-            Box::new(|context| Box::pin(handle_set(context))),
-        );
-        commands.insert(
-            "DEL".to_string(),
-            Box::new(|context| Box::pin(handle_del(context))),
-        );
-        commands.insert(
-            "PING".to_string(),
-            Box::new(|context| Box::pin(handle_ping(context))),
-        );
-
+        let commands: HashMap<String, Box<dyn Command>> = get_commands();
         Self {
             storage: Arc::new(Mutex::new(storage)),
             cache: Arc::new(CacheLayer::new(cache_size)),
@@ -124,7 +96,7 @@ async fn handle_connection(
     mut socket: TcpStream,
     storage: Arc<Mutex<StorageEngine>>,
     cache: Arc<CacheLayer>,
-    commands: Arc<HashMap<String, CommandHandler>>,
+    commands: Arc<HashMap<String, Box<dyn Command>>>,
 ) -> Result<()> {
     let mut buffer = vec![0; 1024];
     let mut context: RediskCommandContext = RediskCommandContext {
@@ -155,15 +127,15 @@ async fn handle_connection(
 
 async fn handle_command(
     context: &RediskCommandContext<'_>,
-    commands: &HashMap<String, CommandHandler>,
+    commands: &HashMap<String, Box<dyn Command>>,
 ) -> Vec<u8> {
     if context.args.is_empty() {
         return context.redisk_protocol.serialize_error("empty command");
     }
 
     let cmd_name = context.args[0].to_uppercase();
-    if let Some(handler) = commands.get(&cmd_name) {
-        handler(context).await
+    if let Some(command) = commands.get(&cmd_name) {
+        command.execute(context).await
     } else {
         context.redisk_protocol.serialize_error(&format!("unknown command '{}'", cmd_name))
     }
