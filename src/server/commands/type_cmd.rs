@@ -3,11 +3,11 @@ use std::pin::Pin;
 use crate::server::RediskCommandContext;
 use crate::server::commands::Command;
 
-pub struct Get;
+pub struct Type;
 
-impl Command for Get {
+impl Command for Type {
     fn name(&self) -> String {
-        String::from("GET")
+        String::from("TYPE")
     }
 
     fn execute<'a>(
@@ -16,15 +16,12 @@ impl Command for Get {
     ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'a>> {
         Box::pin(async move {
             if context.args.len() != 2 {
-                return context.redisk_protocol.serialize_error("wrong number of arguments for 'get' command");
+                return context.redisk_protocol.serialize_error("wrong number of arguments for 'type' command");
             }
             let key = &context.args[1];
 
-            match context.get(key) {
-                Ok(Some(value)) => {
-                    context.redisk_protocol.serialize_bulk_string(&String::from_utf8_lossy(&value))
-                }
-                Ok(None) => context.redisk_protocol.serialize_null(),
+            match context.get_type(key) {
+                Ok(t) => context.redisk_protocol.serialize_simple_string(&t),
                 Err(e) => context.redisk_protocol.serialize_error(&format!("storage error: {}", e)),
             }
         })

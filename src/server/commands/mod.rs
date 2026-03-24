@@ -8,6 +8,17 @@ pub mod get;
 pub mod set;
 pub mod del;
 pub mod ping;
+pub mod ttl;
+pub mod pttl;
+pub mod exists;
+pub mod expire;
+pub mod persist;
+pub mod keys;
+pub mod scan;
+pub mod type_cmd;
+pub mod rename;
+pub mod randomkey;
+pub mod move_cmd;
 mod compact;
 
 pub trait Command: Send + Sync {
@@ -33,6 +44,17 @@ fn get_command_list() -> Vec<Box<dyn Command>> {
         Box::new(Del),
         Box::new(Ping),
         Box::new(Compact),
+        Box::new(Ttl),
+        Box::new(Pttl),
+        Box::new(Exists),
+        Box::new(Expire),
+        Box::new(Persist),
+        Box::new(Keys),
+        Box::new(Scan),
+        Box::new(Type),
+        Box::new(Rename),
+        Box::new(RandomKey),
+        Box::new(Move),
     ]
 }
 
@@ -40,3 +62,14 @@ pub use get::Get;
 pub use set::Set;
 pub use del::Del;
 pub use ping::Ping;
+pub use ttl::Ttl;
+pub use pttl::Pttl;
+pub use exists::Exists;
+pub use expire::Expire;
+pub use persist::Persist;
+pub use keys::Keys;
+pub use scan::Scan;
+pub use type_cmd::Type;
+pub use rename::Rename;
+pub use randomkey::RandomKey;
+pub use move_cmd::Move;
