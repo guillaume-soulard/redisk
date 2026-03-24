@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use compact::Compact;
 use crate::server::RediskCommandContext;
 
 pub mod get;
 pub mod set;
 pub mod del;
 pub mod ping;
+mod compact;
 
 pub trait Command: Send + Sync {
     fn name(&self) -> String;
@@ -29,7 +31,8 @@ fn get_command_list() -> Vec<Box<dyn Command>> {
         Box::new(Get),
         Box::new(Set),
         Box::new(Del),
-        Box::new(Ping),        
+        Box::new(Ping),
+        Box::new(Compact),
     ]
 }
 

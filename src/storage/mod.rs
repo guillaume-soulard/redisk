@@ -33,8 +33,7 @@ impl StorageEngine {
 
         let file_size = file.metadata()?.len();
         while offset < file_size {
-            file.seek(SeekFrom::Start(offset))?;
-            match bincode::deserialize_from::<&File, Record>(&file) {
+            match read_record(&mut file, offset) {
                 Ok(record) => {
                     let record_size = bincode::serialized_size(&record)?;
                     if !record.deleted {
@@ -74,12 +73,15 @@ impl StorageEngine {
 
     pub fn get(&mut self, key: &str) -> Result<Option<Vec<u8>>> {
         if let Some(&offset) = self.index.get(key) {
-            self.file.seek(SeekFrom::Start(offset.0))?;
-            let record: Record = bincode::deserialize_from(&self.file)?;
-            if record.deleted {
-                return Ok(None);
+            return match read_record(&mut self.file, offset.0) {
+                Ok(record) => {
+                    if record.deleted {
+                        return Ok(None);
+                    }
+                    Ok(Some(record.value))
+                },
+                Err(_) => Ok(None),
             }
-            return Ok(Some(record.value));
         }
         Ok(None)
     }
@@ -97,6 +99,36 @@ impl StorageEngine {
             self.file.flush()?;
         }
         Ok(())
+    }
+
+    pub fn compact(&mut self) -> Result<()> {
+        let temp_path = "temp.rdat";
+        let mut temp_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&temp_path)?;
+        let mut index: HashMap<String, (u64, u64)> = HashMap::new();
+
+        for (key, (offset, version)) in self.index.iter() {
+            let record = read_record(&mut self.file, *offset)?;
+            let temp_offset = temp_file.seek(SeekFrom::End(0))?;
+            bincode::serialize_into(&temp_file, &record)?;
+            temp_file.flush()?;
+            index.insert(key.clone(), (temp_offset, *version));
+        }
+        temp_file.flush()?;
+        std::fs::remove_file(self._path.to_str().unwrap())?;
+        std::fs::rename(temp_path, self._path.to_str().unwrap())?;
+        Ok(())
+    }
+}
+
+fn read_record(file: &mut File, offset: u64) -> Result<Record> {
+    file.seek(SeekFrom::Start(offset))?;
+    match bincode::deserialize_from(file) {
+        Ok(record) => Ok(record),
+        Err(e) => Err(e.into()),
     }
 }
 
