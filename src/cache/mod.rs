@@ -1,3 +1,5 @@
+mod redisk_map;
+
 use lru::LruCache;
 use std::num::NonZeroUsize;
 use std::sync::Mutex;
