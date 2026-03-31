@@ -166,11 +166,11 @@ pub struct RedisServer {
 }
 
 impl RedisServer {
-    pub fn new(storage: StorageEngine, cache_size: usize) -> Self {
+    pub fn new(storage: StorageEngine, cache_size: usize, nb_db: usize) -> Self {
         let commands: HashMap<String, Box<dyn Command>> = get_commands();
         Self {
             storage: Arc::new(Mutex::new(storage)),
-            cache: Arc::new(CacheLayer::new(cache_size)),
+            cache: Arc::new(CacheLayer::new(cache_size, nb_db)),
             commands: Arc::new(commands),
         }
     }
