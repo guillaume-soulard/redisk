@@ -58,7 +58,7 @@ impl RediskCommandContext<'_> {
         }
     }
 
-    pub fn get_ttl(&self, key: &str) -> Result<Option<Option<u64>>> {
+    pub fn get_ttl(&self, key: &str) -> Result<Option<u64>> {
         if let Some(ttl) = self.memory.get_ttl(self.db, key) {
             return Ok(Some(ttl));
         }

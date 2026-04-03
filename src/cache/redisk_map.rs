@@ -15,6 +15,12 @@ impl RediskMap {
         }
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Vec<u8>)> {
+        self.map.iter()
+            .filter(|(_, (expires_at, _))| expires_at.is_none() || expires_at.unwrap() > SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs())
+            .map(|(key, (_, value))| (key, value))
+    }
+    
     pub fn put(&mut self, key: String, value: Vec<u8>, expire_seconds: Option<u64>) -> Option<Vec<u8>> {
         let existing = self.map.insert(key.clone(), (expire_seconds, value));
         if !self.ttl_map.contains_key(&expire_seconds) {

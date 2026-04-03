@@ -127,23 +127,23 @@ impl StorageEngine {
         Ok(None)
     }
 
-    pub fn get_ttl(&self, db: u32, key: &str) -> Result<Option<Option<u64>>> {
+    pub fn get_ttl(&self, db: u32, key: &str) -> Result<Option<u64>> {
         if let Some(db_index) = self.indices.get(&db) {
             if let Some(&(_, _, expires_at)) = db_index.get(key) {
-                if let Some(exp) = expires_at {
+                return if let Some(exp) = expires_at {
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)?
                         .as_secs();
                     if exp <= now {
-                        return Ok(None); // Key considered non-existent
+                        return Ok(None);
                     }
-                    return Ok(Some(Some(exp - now)));
+                    Ok(Some(exp - now))
                 } else {
-                    return Ok(Some(None)); // Key exists, no TTL
+                    Ok(None)
                 }
             }
         }
-        Ok(None) // Key not found
+        Ok(None)
     }
 
     pub fn exists(&self, db: u32, key: &str) -> bool {
@@ -521,7 +521,7 @@ mod tests {
 
         let ttl = engine.get_ttl(0, "key1").unwrap();
         assert!(ttl.is_some());
-        assert!(ttl.unwrap().unwrap() <= 5);
+        assert!(ttl.unwrap() <= 5);
 
         std::thread::sleep(std::time::Duration::from_secs(6));
         assert_eq!(engine.get(0, "key1").unwrap(), None);
@@ -536,7 +536,7 @@ mod tests {
 
         engine.set(0, "key1".to_string(), b"val1".to_vec(), None).unwrap();
         let ttl = engine.get_ttl(0, "key1").unwrap();
-        assert_eq!(ttl, Some(None));
+        assert_eq!(ttl, None);
     }
 
     #[test]
@@ -570,7 +570,6 @@ mod tests {
         assert!(engine.expire(0, "key1", 10).unwrap());
         let ttl = engine.get_ttl(0, "key1").unwrap();
         assert!(ttl.is_some());
-        assert!(ttl.unwrap().is_some());
     }
 
     #[test]
@@ -582,7 +581,7 @@ mod tests {
         engine.set(0, "key1".to_string(), b"val1".to_vec(), Some(10)).unwrap();
         assert!(engine.persist(0, "key1").unwrap());
         let ttl = engine.get_ttl(0, "key1").unwrap();
-        assert_eq!(ttl, Some(None));
+        assert_eq!(ttl, None);
     }
 
     #[test]
