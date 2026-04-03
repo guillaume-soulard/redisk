@@ -20,13 +20,18 @@ impl RediskMap {
             .filter(|(_, (expires_at, _))| expires_at.is_none() || expires_at.unwrap() > SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs())
             .map(|(key, (_, value))| (key, value))
     }
-    
+
     pub fn put(&mut self, key: String, value: Vec<u8>, expire_seconds: Option<u64>) -> Option<Vec<u8>> {
         let existing = self.map.insert(key.clone(), (expire_seconds, value));
-        if !self.ttl_map.contains_key(&expire_seconds) {
-            self.ttl_map.insert(expire_seconds, HashSet::new());
-        }
-        let new_expiration = self.get_next_timestamp_by_duration(expire_seconds);
+        let new_expiration = match expire_seconds {
+            Some(ttl) => {
+                if !self.ttl_map.contains_key(&ttl) {
+                self.ttl_map.insert(ttl, HashSet::new());
+                }
+                self.get_next_timestamp_by_duration(ttl)
+            }
+            None => self.get_now(),
+        };
         let hashset = self.ttl_map.get_mut(&new_expiration);
         match hashset {
             Some(set) => {
@@ -43,15 +48,16 @@ impl RediskMap {
         }
     }
 
-    pub fn get(&mut self, key: String) -> Option<Vec<u8>> {
+    pub fn get(&mut self, key: String) -> Option<(Option<u64>, Vec<u8>)> {
         let existing = self.map.get(&key);
         match existing {
             Some(value) => {
-                if self.get_now() > value.0 {
+                let ttl = value.0.unwrap_or(0);
+                if ttl != 0 && self.get_now() > ttl {
                     self.map.remove(&key);
                     None
                 } else {
-                    Some(value.1.clone())
+                    Some((value.0, value.1.clone()))
                 }
             },
             None => None,
@@ -62,7 +68,15 @@ impl RediskMap {
         let existing = self.map.remove(&key);
         match existing {
             Some((ttl, existing_value)) => {
-                self.ttl_map.get_mut(&ttl).unwrap().remove(&key);
+                if let Some(ttl) = ttl {
+                    if let Some(ttl_set) = self.ttl_map.get_mut(&ttl) {
+                        ttl_set.remove(&key);
+                    }
+                } else {
+                    if let Some(ttl_set) = self.ttl_map.get_mut(&0) {
+                        ttl_set.remove(&key);
+                    }
+                }
                 Some(existing_value)
             },
             None => None,
