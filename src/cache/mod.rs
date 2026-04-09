@@ -45,7 +45,7 @@ impl CacheLayer {
         cache.remove(key.to_string());
     }
 
-    pub fn get_ttl(&self, db: u32, key: &str) -> Option<u64> {
+    pub fn get_ttl(&self, db: u32, key: &str) -> Option<Option<u64>> {
         let optional_cache = self.cache.get(db as usize);
         if let None = optional_cache {
             return None;
@@ -104,9 +104,12 @@ impl CacheLayer {
         match self.cache.get(db as usize) {
             Some(cache) => {
                 let mut cache = cache.lock().unwrap();
-                let ttl = cache.ttl(old_key.to_string());
+                let ttl = match cache.ttl(old_key.to_string()) {
+                    Some(t) => t,
+                    _ => None
+                };
                 if let Some(value) = cache.remove(old_key.to_string()) {
-                    cache.put((new_key.to_string()), value, ttl);
+                    cache.put(new_key.to_string(), value, ttl);
                     return true;
                 }
             }
@@ -165,7 +168,7 @@ mod tests {
 
         let ttl = cache.get_ttl(0, "key1");
         assert!(ttl.is_some());
-        assert!(ttl.unwrap() <= 5);
+        assert!(ttl.unwrap() <= Some(5));
 
         std::thread::sleep(std::time::Duration::from_secs(6));
         assert!(cache.get_ttl(0, "key1").is_none());

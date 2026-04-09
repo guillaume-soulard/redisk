@@ -127,7 +127,7 @@ impl StorageEngine {
         Ok(None)
     }
 
-    pub fn get_ttl(&self, db: u32, key: &str) -> Result<Option<u64>> {
+    pub fn get_ttl(&self, db: u32, key: &str) -> Result<Option<Option<u64>>> {
         if let Some(db_index) = self.indices.get(&db) {
             if let Some(&(_, _, expires_at)) = db_index.get(key) {
                 return if let Some(exp) = expires_at {
@@ -135,11 +135,11 @@ impl StorageEngine {
                         .duration_since(UNIX_EPOCH)?
                         .as_secs();
                     if exp <= now {
-                        return Ok(None);
+                        return Ok(Some(None));
                     }
-                    Ok(Some(exp - now))
+                    Ok(Some(Some(exp - now)))
                 } else {
-                    Ok(None)
+                    Ok(Some(None))
                 }
             }
         }
@@ -521,7 +521,7 @@ mod tests {
 
         let ttl = engine.get_ttl(0, "key1").unwrap();
         assert!(ttl.is_some());
-        assert!(ttl.unwrap() <= 5);
+        assert!(ttl.unwrap() <= Some(5));
 
         std::thread::sleep(std::time::Duration::from_secs(6));
         assert_eq!(engine.get(0, "key1").unwrap(), None);

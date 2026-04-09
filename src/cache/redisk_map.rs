@@ -38,8 +38,8 @@ impl RediskMap {
                 set.insert(key);
             }
             None => {
-                let mut s = self.ttl_map.insert(new_expiration, HashSet::new()).unwrap();
-                s.insert(key);
+                self.ttl_map.insert(new_expiration, HashSet::new());
+                self.ttl_map.get_mut(&new_expiration).unwrap().insert(key);
             }
         }
         match existing {
@@ -96,12 +96,16 @@ impl RediskMap {
         let existing = self.map.get(&key);
         match existing {
             Some((existing_expire_seconds, existing_value)) => {
-                self.ttl_map.get_mut(&existing_expire_seconds).unwrap().remove(&key);
+                if let Some(ttl) = *existing_expire_seconds {
+                    if let Some(ttl_set) = self.ttl_map.get_mut(&ttl) {
+                        ttl_set.remove(&key);
+                    }
+                };
                 if !self.ttl_map.contains_key(&expire_seconds) {
                     self.ttl_map.insert(expire_seconds, HashSet::new());
                 }
                 self.ttl_map.get_mut(&expire_seconds).unwrap().insert(key.clone());
-                let map_value = self.map.insert(key, (expire_seconds, existing_value.clone()));
+                let map_value = self.map.insert(key, (Some(expire_seconds), existing_value.clone()));
                 map_value.map(|(_, value)| value.clone())
             }
             None => None,
@@ -112,21 +116,27 @@ impl RediskMap {
         let existing = self.map.get(&key);
         match existing {
             Some((existing_expire_seconds, existing_value)) => {
-                if let Some(ttl_set) = self.ttl_map.get_mut(&existing_expire_seconds) {
-                    ttl_set.remove(&key);
+                if let Some(ttl) = *existing_expire_seconds {
+                    if let Some(ttl_set) = self.ttl_map.get_mut(&ttl) {
+                        ttl_set.remove(&key);
+                    }
                 }
-                self.map.insert(key, (0, existing_value.clone()))
+                self.map.insert(key, (None, existing_value.clone()))
                     .map(|(_, value)| value.clone())
             },
             None => None,
         }
     }
 
-    pub fn ttl(&mut self, key: String) -> Option<u64> {
-        let existing = self.map.get(&key);
+    pub fn ttl(&mut self, key: String) -> Option<Option<u64>> {
+        let existing = self.get(key.clone());
         match existing {
             Some((existing_expire_seconds, _)) => {
-                Some(*existing_expire_seconds)
+                if let Some(ttl) = existing_expire_seconds {
+                    Some(Some(ttl - self.get_now()))
+                } else {
+                    Some(None)
+                }
             },
             None => None,
         }
