@@ -18,8 +18,23 @@ struct RediskCommandContext<'a> {
     db: u32,
 }
 
+pub type TTL = Option<u64>;
+
+pub type RediskValue = Vec<u8>;
+
 impl RediskCommandContext<'_> {
-    pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+    pub fn mount(&self, key: &str) -> Option<RediskValue> {
+        let storage = self.storage.get(self.db, key);
+        match storage {
+            Ok(value) => self.memory.set(self.db, key, value),
+            Err(_) => None,
+        }
+        self.memory.set(self.db, key, storage.)
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (&String, (TTL, &RediskValue))> {
+        self.memory.iter(self.db)
+    }
+    pub fn get(&self, key: &str) -> Result<Option<RediskValue>> {
         match self.memory.get(self.db, key) {
             Some(value) => Ok(Some(value)),
             None => {
@@ -34,7 +49,7 @@ impl RediskCommandContext<'_> {
         }
     }
 
-    pub fn set(&self, key: &str, value: &Vec<u8>, ttl: Option<u64>) -> Result<()> {
+    pub fn set(&self, key: &str, value: &RediskValue, ttl: TTL) -> Result<Option<RediskValue>> {
         match self.storage.lock() {
             Ok(mut storage) => match storage.set(self.db, key.to_string(), value.clone(), ttl) {
                 Ok(_) => {
@@ -47,7 +62,7 @@ impl RediskCommandContext<'_> {
         }
     }
 
-    pub fn delete(&self, key: &str) -> Result<()> {
+    pub fn delete(&self, key: &str) -> Result<Option<RediskValue>> {
         self.memory.delete(self.db, key);
         match self.storage.lock() {
             Ok(mut storage) => match storage.delete(self.db, key) {
@@ -58,29 +73,7 @@ impl RediskCommandContext<'_> {
         }
     }
 
-    pub fn get_ttl(&self, key: &str) -> Result<Option<Option<u64>>> {
-        if let Some(ttl) = self.memory.get_ttl(self.db, key) {
-            return Ok(Some(ttl));
-        }
-
-        match self.storage.lock() {
-            Ok(storage) => storage.get_ttl(self.db, key),
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
-        }
-    }
-
-    pub fn exists(&self, key: &str) -> Result<bool> {
-        if self.memory.exists(self.db, key) {
-            return Ok(true);
-        }
-
-        match self.storage.lock() {
-            Ok(storage) => Ok(storage.exists(self.db, key)),
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
-        }
-    }
-
-    pub fn expire(&self, key: &str, seconds: u64) -> Result<bool> {
+    pub fn expire(&self, key: &str, ttl: TTL) -> Result<Option<RediskValue>> {
         match self.storage.lock() {
             Ok(mut storage) => {
                 let success = storage.expire(self.db, key, seconds)?;
@@ -93,64 +86,12 @@ impl RediskCommandContext<'_> {
         }
     }
 
-    pub fn persist(&self, key: &str) -> Result<bool> {
+    pub fn persist(&self, key: &str) -> Result<Option<RediskValue>> {
         match self.storage.lock() {
             Ok(mut storage) => {
                 let success = storage.persist(self.db, key)?;
                 if success {
                     self.memory.persist(self.db, key);
-                }
-                Ok(success)
-            },
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
-        }
-    }
-
-    pub fn keys(&self, pattern: &str) -> Result<Vec<String>> {
-        match self.storage.lock() {
-            Ok(storage) => Ok(storage.keys(self.db, pattern)),
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
-        }
-    }
-
-    pub fn scan(&self, cursor: usize, pattern: Option<String>, count: usize) -> Result<(usize, Vec<String>)> {
-        match self.storage.lock() {
-            Ok(storage) => Ok(storage.scan(self.db, cursor, pattern, count)),
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
-        }
-    }
-
-    pub fn get_type(&self, key: &str) -> Result<String> {
-        match self.storage.lock() {
-            Ok(storage) => Ok(storage.get_type(self.db, key)),
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
-        }
-    }
-
-    pub fn rename(&self, old_key: &str, new_key: &str) -> Result<()> {
-        match self.storage.lock() {
-            Ok(mut storage) => {
-                storage.rename(self.db, old_key, new_key)?;
-                self.memory.rename(self.db, old_key, new_key);
-                Ok(())
-            },
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
-        }
-    }
-
-    pub fn randomkey(&self) -> Result<Option<String>> {
-        match self.storage.lock() {
-            Ok(storage) => Ok(storage.randomkey(self.db)),
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
-        }
-    }
-
-    pub fn move_key(&self, src_db: u32, dest_db: u32, key: &str) -> Result<bool> {
-        match self.storage.lock() {
-            Ok(mut storage) => {
-                let success = storage.move_key(src_db, dest_db, key)?;
-                if success {
-                    self.memory.move_key(src_db, dest_db, key);
                 }
                 Ok(success)
             },

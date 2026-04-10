@@ -1,156 +1,86 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use crate::server::{RediskValue, TTL};
+use std::collections::HashMap;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
 pub struct RediskMap {
-    map: HashMap<String, (Option<u64>, Vec<u8>)>,
-    ttl_map: BTreeMap<u64, HashSet<String>>,
+    map: HashMap<String, (TTL, RediskValue)>,
 }
 
 impl RediskMap {
     pub fn new() -> Self {
         Self {
             map: HashMap::new(),
-            ttl_map: BTreeMap::new(),
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &Vec<u8>)> {
+    pub fn iter(&self) -> impl Iterator<Item=(&String, &(TTL, RediskValue))> {
         self.map.iter()
             .filter(|(_, (expires_at, _))| expires_at.is_none() || expires_at.unwrap() > SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs())
-            .map(|(key, (_, value))| (key, value))
     }
 
-    pub fn put(&mut self, key: String, value: Vec<u8>, expire_seconds: Option<u64>) -> Option<Vec<u8>> {
-        let existing = self.map.insert(key.clone(), (expire_seconds, value));
-        let new_expiration = match expire_seconds {
-            Some(ttl) => {
-                if !self.ttl_map.contains_key(&ttl) {
-                self.ttl_map.insert(ttl, HashSet::new());
-                }
-                self.get_next_timestamp_by_duration(ttl)
-            }
-            None => self.get_now(),
-        };
-        let hashset = self.ttl_map.get_mut(&new_expiration);
-        match hashset {
-            Some(set) => {
-                set.insert(key);
-            }
-            None => {
-                self.ttl_map.insert(new_expiration, HashSet::new());
-                self.ttl_map.get_mut(&new_expiration).unwrap().insert(key);
-            }
-        }
-        match existing {
-            Some((_, existing_value)) => Some(existing_value),
-            None => None,
-        }
+    pub fn set(&mut self, key: String, value: RediskValue, ttl: TTL) -> Option<(TTL, RediskValue)> {
+        let expiration = get_next_timestamp_by_duration(ttl);
+        self.map.insert(key.clone(), (expiration, value))
     }
 
-    pub fn get(&mut self, key: String) -> Option<(Option<u64>, Vec<u8>)> {
+    pub fn get(&mut self, key: String) -> Option<(TTL, RediskValue)> {
         let existing = self.map.get(&key);
         match existing {
-            Some(value) => {
-                let ttl = value.0.unwrap_or(0);
-                if ttl != 0 && self.get_now() > ttl {
-                    self.map.remove(&key);
-                    None
-                } else {
-                    Some((value.0, value.1.clone()))
-                }
-            },
-            None => None,
-        }
-    }
-
-    pub fn remove(&mut self, key: String) -> Option<Vec<u8>> {
-        let existing = self.map.remove(&key);
-        match existing {
-            Some((ttl, existing_value)) => {
-                if let Some(ttl) = ttl {
-                    if let Some(ttl_set) = self.ttl_map.get_mut(&ttl) {
-                        ttl_set.remove(&key);
-                    }
-                } else {
-                    if let Some(ttl_set) = self.ttl_map.get_mut(&0) {
-                        ttl_set.remove(&key);
+            Some(existing) => {
+                if let Some(ttl) = existing.0 {
+                    if ttl < get_now() {
+                        // TODO clean expired keys from the map
+                        return None;
                     }
                 }
-                Some(existing_value)
-            },
-            None => None,
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.map.clear();
-        self.ttl_map.clear();
-    }
-
-    pub fn size(&self) -> usize {
-        self.map.len()
-    }
-
-    pub fn expire(&mut self, key: String, expire_seconds: u64) -> Option<Vec<u8>> {
-        let existing = self.map.get(&key);
-        match existing {
-            Some((existing_expire_seconds, existing_value)) => {
-                if let Some(ttl) = *existing_expire_seconds {
-                    if let Some(ttl_set) = self.ttl_map.get_mut(&ttl) {
-                        ttl_set.remove(&key);
-                    }
-                };
-                if !self.ttl_map.contains_key(&expire_seconds) {
-                    self.ttl_map.insert(expire_seconds, HashSet::new());
-                }
-                self.ttl_map.get_mut(&expire_seconds).unwrap().insert(key.clone());
-                let map_value = self.map.insert(key, (Some(expire_seconds), existing_value.clone()));
-                map_value.map(|(_, value)| value.clone())
+                Some(existing.clone())
             }
             None => None,
         }
     }
 
-    pub fn persist(&mut self, key: String) -> Option<Vec<u8>> {
-        let existing = self.map.get(&key);
+    pub fn delete(&mut self, key: String) -> Option<RediskValue> {
+        self.map.remove(&key).map(|(_, value)| value)
+    }
+
+    pub fn expire(&mut self, key: String, ttl: TTL) -> Option<RediskValue> {
+        let existing = self.map.get_mut(&key);
         match existing {
-            Some((existing_expire_seconds, existing_value)) => {
-                if let Some(ttl) = *existing_expire_seconds {
-                    if let Some(ttl_set) = self.ttl_map.get_mut(&ttl) {
-                        ttl_set.remove(&key);
-                    }
-                }
-                self.map.insert(key, (None, existing_value.clone()))
-                    .map(|(_, value)| value.clone())
+            Some(v) => {
+                let expiration = get_next_timestamp_by_duration(ttl);
+                v.0 = expiration;
+                Some(v.1.clone())
             },
-            None => None,
+            None => None
         }
     }
 
-    pub fn ttl(&mut self, key: String) -> Option<Option<u64>> {
-        let existing = self.get(key.clone());
+    pub fn persist(&mut self, key: String) -> Option<RediskValue> {
+        let existing = self.map.get_mut(&key);
         match existing {
-            Some((existing_expire_seconds, _)) => {
-                if let Some(ttl) = existing_expire_seconds {
-                    Some(Some(ttl - self.get_now()))
-                } else {
-                    Some(None)
-                }
+            Some(v) => {
+                v.0 = None;
+                Some(v.1.clone())
             },
-            None => None,
+            None => None
         }
     }
+}
 
-    fn get_now(&self) -> u64 {
-        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
-    }
+fn get_now() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+}
 
-    fn get_next_timestamp_by_duration(&self, expire_seconds: u64) -> u64 {
-        SystemTime::now()
-            .add(Duration::from_secs(expire_seconds))
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
+fn get_next_timestamp_by_duration(ttl: TTL) -> TTL {
+    match ttl {
+        Some(t) => {
+            Some(SystemTime::now()
+                .add(Duration::from_secs(t))
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs())
+        },
+        None => None
     }
 }
