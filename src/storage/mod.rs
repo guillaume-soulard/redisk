@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use rand::seq::IteratorRandom;
 
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::server::RediskValue;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Record {
@@ -72,7 +73,7 @@ impl StorageEngine {
         })
     }
 
-    pub fn set(&mut self, db: u32, key: String, value: Vec<u8>, ttl: Option<u64>) -> Result<()> {
+    pub fn set(&mut self, db: u32, key: String, value: Vec<u8>, ttl: Option<u64>) -> Result<Option<RediskValue>> {
         let expires_at = ttl.map(|t| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -357,7 +358,7 @@ impl StorageEngine {
             .map(|(key, _)| key.clone())
     }
 
-    pub fn delete(&mut self, db: u32, key: &str) -> Result<()> {
+    pub fn delete(&mut self, db: u32, key: &str) -> Result<Option<RediskValue>> {
         let db_index = self.indices.entry(db).or_default();
         if let Some(v) = db_index.remove(key) {
             let record = Record {

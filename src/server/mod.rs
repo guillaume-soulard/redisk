@@ -23,20 +23,38 @@ pub type TTL = Option<u64>;
 pub type RediskValue = Vec<u8>;
 
 impl RediskCommandContext<'_> {
-    pub fn mount(&self, key: &str) -> Option<RediskValue> {
-        let storage = self.storage.get(self.db, key);
+    pub fn mount(&self, key: &str, ttl: TTL) -> Option<RediskValue> {
+        let storage = self.storage.lock().unwrap().get(self.db, key);
         match storage {
-            Ok(value) => self.memory.set(self.db, key, value),
+            Ok(Some(value)) => {
+                self.memory.set(self.db, key.to_string(), value, ttl)
+                    .map(|v| v.1)
+            },
+            Ok(None) => None,
             Err(_) => None,
         }
-        self.memory.set(self.db, key, storage.)
     }
+
+    pub fn unmount(&self, key: &str, ttl: TTL) -> Option<RediskValue> {
+        let memory = self.memory.delete(self.db, key);
+        match memory {
+            Some(value) => {
+                match self.storage.lock().unwrap().set(self.db, key.to_string(), value.clone(), ttl) {
+                    Ok(Some(v)) => Some(v),
+                    Ok(None) => None,
+                    Err(_) => None,
+                }
+            },
+            None => None,
+        }
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&String, (TTL, &RediskValue))> {
         self.memory.iter(self.db)
     }
     pub fn get(&self, key: &str) -> Result<Option<RediskValue>> {
         match self.memory.get(self.db, key) {
-            Some(value) => Ok(Some(value)),
+            Some(value) => Ok(Some(value.1)),
             None => {
                 match self.storage.lock() {
                     Ok(mut storage) => match storage.get(self.db, key) {
