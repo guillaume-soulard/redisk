@@ -73,6 +73,15 @@ impl StorageEngine {
         })
     }
 
+    pub fn iter(&self, db: u32) -> Box<dyn Iterator<Item = (&String, &(TTL, RediskValue))> + '_> {
+        Box::new(self.indices.iter().flat_map(|(db, index)| {
+            index.iter().map(move |(key, (offset, version, expires_at))| {
+                let record = self.file.read_record(*offset).unwrap();
+                (key, &(record.expires_at, record.value))
+            })
+        }))
+    }
+    
     pub fn set(&mut self, db: u32, key: String, value: RediskValue, ttl: TTL) -> Option<RediskValue> {
         let expires_at = ttl.map(|t| {
             SystemTime::now()
@@ -101,7 +110,7 @@ impl StorageEngine {
         Ok(())
     }
 
-    pub fn get(&mut self, db: u32, key: &str) -> Result<Option<Vec<u8>>> {
+    pub fn get(&mut self, db: u32, key: &str) -> Option<RediskValue> {
         let db_index = self.indices.entry(db).or_default();
         if let Some(&entry) = db_index.get(key) {
             let (offset, _, expires_at) = entry;

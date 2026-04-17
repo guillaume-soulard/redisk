@@ -14,7 +14,7 @@ struct RediskCommandContext<'a> {
     redisk_protocol: &'a RediskProtocol,
     args: Vec<String>,
     storage: &'a Arc<Mutex<StorageEngine>>,
-    memory: &'a Arc<CacheLayer>,
+    memory: CacheLayer,
     db: u32,
 }
 
@@ -23,19 +23,18 @@ pub type TTL = Option<u64>;
 pub type RediskValue = Vec<u8>;
 
 impl RediskCommandContext<'_> {
-    pub fn mount(&self, key: &str, ttl: TTL) -> Option<RediskValue> {
+    pub fn mount(&mut self, key: &str, ttl: TTL) -> Option<RediskValue> {
         let storage = self.storage.lock().unwrap().get(self.db, key);
         match storage {
-            Ok(Some(value)) => {
+            Some(value) => {
                 self.memory.set(self.db, key.to_string(), value, ttl)
                     .map(|v| v.1)
             },
-            Ok(None) => None,
-            Err(_) => None,
+            None => None,
         }
     }
 
-    pub fn unmount(&self, key: &str, ttl: TTL) -> Option<RediskValue> {
+    pub fn unmount(&mut self, key: &str, ttl: TTL) -> Option<RediskValue> {
         let memory = self.memory.delete(self.db, key);
         match memory {
             Some(value) => {
@@ -47,77 +46,62 @@ impl RediskCommandContext<'_> {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&String, (TTL, &RediskValue))> {
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&String, &(TTL, RediskValue))> + '_> {
         let memory_values = self.memory.iter(self.db);
-        memory_values.chain(self.storage.lock().unwrap().iter(self.db))
+        // let storage_values = self.storage.lock().unwrap().iter(self.db);
+        memory_values
     }
 
-    pub fn get(&self, key: &str) -> Result<Option<RediskValue>> {
+    pub fn get(&mut self, key: &str) -> Option<RediskValue> {
         if self.memory.is_mounted(self.db, key) {
-            return Ok(self.memory.get(self.db, key).map(|v| v.1));
+            return self.memory.get(self.db, key).map(|v| v.1);
         }
         match self.memory.get(self.db, key) {
-            Some(value) => Ok(Some(value.1)),
+            Some(value) => Some(value.1),
             None => {
                 match self.storage.lock() {
-                    Ok(mut storage) => match storage.get(self.db, key) {
-                        Ok(value) => Ok(value),
-                        Err(err) => Err(err),
-                    },
-                    Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
+                    Ok(mut storage) => storage.get(self.db, key),
+                    Err(_) => None
                 }
             },
         }
     }
 
-    pub fn set(&self, key: &str, value: &RediskValue, ttl: TTL) -> Result<Option<RediskValue>> {
+    pub fn set(&mut self, key: &str, value: &RediskValue, ttl: TTL) -> Option<RediskValue> {
         if self.memory.is_mounted(self.db, key) {
-            self.memory.set(self.db, key.to_string(), value.clone(), ttl);
-            return Ok(None);
+            return self.memory.set(self.db, key.to_string(), value.clone(), ttl)
+                .map(|v| v.1);
         }
-
         match self.storage.lock() {
-            Ok(mut storage) => match storage.set(self.db, key.to_string(), value.clone(), ttl) {
-                Ok(_) => {
-                    Ok(
-                        self.memory.set(self.db, key.to_string(), value.clone(), ttl)
-                        .map(|v| v.1)
-                    )
-                },
-                Err(err) => Err(Error::new(ErrorKind::Custom(String::from(err.to_string())))),
-            },
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
+            Ok(mut storage) => storage.set(self.db, key.to_string(), value.clone(), ttl),
+            Err(_) => None,
         }
     }
 
-    pub fn delete(&self, key: &str) -> Result<Option<RediskValue>> {
+    pub fn delete(&mut self, key: &str) -> Option<RediskValue> {
         let memory_result = self.memory.delete(self.db, key);
         if self.memory.is_mounted(self.db, key) {
-            Ok(memory_result)
+            memory_result
         } else {
             match self.storage.lock() {
-                Ok(mut storage) => match storage.delete(self.db, key) {
-                    Ok(v) => Ok(v),
-                    Err(err) => Err(Error::new(ErrorKind::Custom(String::from(err.to_string())))),
-                },
-                Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
+                Ok(mut storage) => storage.delete(self.db, key),
+                Err(_) => None,
             }
         }
     }
 
-    pub fn expire(&self, key: &str, ttl: TTL) -> Result<Option<RediskValue>> {
+    pub fn expire(&mut self, key: &str, ttl: TTL) -> Option<RediskValue> {
         if self.memory.is_mounted(self.db, key) {
-            return Ok(self.memory.expire(self.db, key, ttl));
-        }
-        match self.storage.lock() {
-            Ok(mut storage) => {
-                Ok(storage.expire(self.db, key, ttl))
-            },
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
+            self.memory.expire(self.db, key, ttl)
+        } else {
+            match self.storage.lock() {
+                Ok(mut storage) => storage.expire(self.db, key, ttl),
+                Err(_) => None,
+            }
         }
     }
 
-    pub fn persist(&self, key: &str) -> Result<Option<RediskValue>> {
+    pub fn persist(&mut self, key: &str) -> Result<Option<RediskValue>> {
         if self.memory.is_mounted(self.db, key) {
             return Ok(self.memory.persist(self.db, key));
         }
@@ -167,7 +151,7 @@ impl RedisServer {
 async fn handle_connection(
     mut socket: TcpStream,
     storage: Arc<Mutex<StorageEngine>>,
-    cache: Arc<CacheLayer>,
+    cache: CacheLayer,
     commands: Arc<HashMap<String, Box<dyn Command>>>,
 ) -> Result<()> {
     let mut buffer = vec![0; 1024];
@@ -186,7 +170,7 @@ async fn handle_connection(
                     redisk_protocol: &protocol,
                     args,
                     storage: &storage,
-                    memory: &cache,
+                    memory: cache,
                     db: current_db,
                 };
                 let response = handle_command(&mut context, &commands).await;
