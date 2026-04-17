@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use rand::seq::IteratorRandom;
 
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::server::RediskValue;
+use crate::server::{RediskValue, TTL};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Record {
@@ -73,7 +73,7 @@ impl StorageEngine {
         })
     }
 
-    pub fn set(&mut self, db: u32, key: String, value: Vec<u8>, ttl: Option<u64>) -> Result<Option<RediskValue>> {
+    pub fn set(&mut self, db: u32, key: String, value: RediskValue, ttl: TTL) -> Option<RediskValue> {
         let expires_at = ttl.map(|t| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -165,7 +165,7 @@ impl StorageEngine {
         false
     }
 
-    pub fn expire(&mut self, db: u32, key: &str, seconds: u64) -> Result<bool> {
+    pub fn expire(&mut self, db: u32, key: &str, ttl: TTL) -> Option<RediskValue> {
         let db_index = self.indices.entry(db).or_default();
         if let Some(&(offset, version, _)) = db_index.get(key) {
             let mut record = read_record(&mut self.file, offset)?;
@@ -187,7 +187,7 @@ impl StorageEngine {
         Ok(false)
     }
 
-    pub fn persist(&mut self, db: u32, key: &str) -> Result<bool> {
+    pub fn persist(&mut self, db: u32, key: &str) -> Option<RediskValue> {
         let db_index = self.indices.entry(db).or_default();
         if let Some(&(offset, version, expires_at)) = db_index.get(key) {
             if expires_at.is_none() {
@@ -358,7 +358,7 @@ impl StorageEngine {
             .map(|(key, _)| key.clone())
     }
 
-    pub fn delete(&mut self, db: u32, key: &str) -> Result<Option<RediskValue>> {
+    pub fn delete(&mut self, db: u32, key: &str) -> Option<RediskValue> {
         let db_index = self.indices.entry(db).or_default();
         if let Some(v) = db_index.remove(key) {
             let record = Record {

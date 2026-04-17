@@ -39,20 +39,23 @@ impl RediskCommandContext<'_> {
         let memory = self.memory.delete(self.db, key);
         match memory {
             Some(value) => {
-                match self.storage.lock().unwrap().set(self.db, key.to_string(), value.clone(), ttl) {
-                    Ok(Some(v)) => Some(v),
-                    Ok(None) => None,
-                    Err(_) => None,
-                }
+                self.storage.lock().unwrap().set(self.db, key.to_string(), value.clone(), ttl)
             },
-            None => None,
+            None => {
+                self.storage.lock().unwrap().delete(self.db, key)
+            },
         }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&String, (TTL, &RediskValue))> {
-        self.memory.iter(self.db)
+        let memory_values = self.memory.iter(self.db);
+        memory_values.chain(self.storage.lock().unwrap().iter(self.db))
     }
+
     pub fn get(&self, key: &str) -> Result<Option<RediskValue>> {
+        if self.memory.is_mounted(self.db, key) {
+            return Ok(self.memory.get(self.db, key).map(|v| v.1));
+        }
         match self.memory.get(self.db, key) {
             Some(value) => Ok(Some(value.1)),
             None => {
@@ -68,11 +71,18 @@ impl RediskCommandContext<'_> {
     }
 
     pub fn set(&self, key: &str, value: &RediskValue, ttl: TTL) -> Result<Option<RediskValue>> {
+        if self.memory.is_mounted(self.db, key) {
+            self.memory.set(self.db, key.to_string(), value.clone(), ttl);
+            return Ok(None);
+        }
+
         match self.storage.lock() {
             Ok(mut storage) => match storage.set(self.db, key.to_string(), value.clone(), ttl) {
                 Ok(_) => {
-                    self.memory.set(self.db, key.to_string(), value.clone(), ttl);
-                    Ok(())
+                    Ok(
+                        self.memory.set(self.db, key.to_string(), value.clone(), ttl)
+                        .map(|v| v.1)
+                    )
                 },
                 Err(err) => Err(Error::new(ErrorKind::Custom(String::from(err.to_string())))),
             },
@@ -81,37 +91,39 @@ impl RediskCommandContext<'_> {
     }
 
     pub fn delete(&self, key: &str) -> Result<Option<RediskValue>> {
-        self.memory.delete(self.db, key);
-        match self.storage.lock() {
-            Ok(mut storage) => match storage.delete(self.db, key) {
-                Ok(_) => Ok(()),
-                Err(err) => Err(Error::new(ErrorKind::Custom(String::from(err.to_string())))),
-            },
-            Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
+        let memory_result = self.memory.delete(self.db, key);
+        if self.memory.is_mounted(self.db, key) {
+            Ok(memory_result)
+        } else {
+            match self.storage.lock() {
+                Ok(mut storage) => match storage.delete(self.db, key) {
+                    Ok(v) => Ok(v),
+                    Err(err) => Err(Error::new(ErrorKind::Custom(String::from(err.to_string())))),
+                },
+                Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
+            }
         }
     }
 
     pub fn expire(&self, key: &str, ttl: TTL) -> Result<Option<RediskValue>> {
+        if self.memory.is_mounted(self.db, key) {
+            return Ok(self.memory.expire(self.db, key, ttl));
+        }
         match self.storage.lock() {
             Ok(mut storage) => {
-                let success = storage.expire(self.db, key, seconds)?;
-                if success {
-                    self.memory.expire(self.db, key, seconds);
-                }
-                Ok(success)
+                Ok(storage.expire(self.db, key, ttl))
             },
             Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
         }
     }
 
     pub fn persist(&self, key: &str) -> Result<Option<RediskValue>> {
+        if self.memory.is_mounted(self.db, key) {
+            return Ok(self.memory.persist(self.db, key));
+        }
         match self.storage.lock() {
             Ok(mut storage) => {
-                let success = storage.persist(self.db, key)?;
-                if success {
-                    self.memory.persist(self.db, key);
-                }
-                Ok(success)
+                Ok(storage.persist(self.db, key))
             },
             Err(e) => Err(Error::new(ErrorKind::Custom(String::from(e.to_string())))),
         }
@@ -125,11 +137,11 @@ pub struct RedisServer {
 }
 
 impl RedisServer {
-    pub fn new(storage: StorageEngine, cache_size: usize, nb_db: usize) -> Self {
+    pub fn new(storage: StorageEngine, nb_db: usize) -> Self {
         let commands: HashMap<String, Box<dyn Command>> = get_commands();
         Self {
             storage: Arc::new(Mutex::new(storage)),
-            cache: Arc::new(CacheLayer::new(cache_size, nb_db)),
+            cache: Arc::new(CacheLayer::new(nb_db)),
             commands: Arc::new(commands),
         }
     }

@@ -5,11 +5,11 @@ use crate::server::{RediskValue, TTL};
 use std::sync::{Mutex, MutexGuard};
 
 pub struct CacheLayer {
-    cache: Vec<Mutex<RediskMap>>,
+    cache: Vec<RediskMap>,
 }
 
 impl CacheLayer {
-    pub fn new(capacity: usize, nb_db: usize) -> Self {
+    pub fn new(nb_db: usize) -> Self {
         Self {
             cache: (0..nb_db).map(|_| Mutex::new(RediskMap::new())).collect(),
         }
@@ -24,6 +24,40 @@ impl CacheLayer {
                 }
             },
             None => None,
+        }
+    }
+
+    pub fn iter(&self, db: u32) -> Box<dyn Iterator<Item = (String, (TTL, RediskValue))> + '_> {
+        match self.get_db(db) {
+            Some(cache) => Box::new(cache.into_iter()), // into_iter consomme le cache et donne les valeurs
+            None => Box::new(std::iter::empty()),
+        }
+    }
+
+    pub fn mount(&self, db: u32, key: &str) {
+        match self.get_db(db) {
+            Some(mut cache) => {
+                cache.mount(key.to_string())
+            },
+            None => {},
+        }
+    }
+
+    pub fn unmount(&self, db: u32, key: &str) -> Option<(TTL, RediskValue)> {
+        match self.get_db(db) {
+            Some(mut cache) => {
+                cache.unmount(key)
+            },
+            None => None,
+        }
+    }
+
+    pub fn is_mounted(&self, db: u32, key: &str) -> bool {
+        match self.get_db(db) {
+            Some(cache) => {
+                cache.is_mounted(key)
+            },
+            None => false,
         }
     }
 
