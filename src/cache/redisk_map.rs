@@ -1,82 +1,113 @@
-use crate::server::{RediskValue, TTL};
-use std::collections::{HashMap, HashSet};
+use crate::server::{RediskKeyValue, RediskValue, TTL};
+use std::collections::HashMap;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
 pub struct RediskMap {
-    map: HashMap<String, (TTL, RediskValue)>,
-    mounted_keys: HashSet<String>,
+    map: HashMap<String, RediskKeyValue>,
 }
 
 impl RediskMap {
     pub fn new() -> Self {
         Self {
             map: HashMap::new(),
-            mounted_keys: HashSet::new(),
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=(&String, &(TTL, RediskValue))> {
+    pub fn iter(&self) -> impl Iterator<Item=(&String, &RediskKeyValue)> {
         self.map.iter()
-            .filter(|(_, (expires_at, _))| expires_at.is_none() || expires_at.unwrap() > SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs())
+            .filter(|(_, v)| *v.ttl.is_none() || *v.ttl.unwrap() > SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs())
     }
 
-    pub fn mount(&mut self, key: String) {
-        self.mounted_keys.insert(key);
+    pub fn mount(&mut self, key: String) -> Option<RediskKeyValue> {
+        match self.map.get_mut(&key) {
+            Some(v) => {
+                v.mounted = true;
+                self.map.insert(key, *v)
+            }
+            None => {
+                self.map.insert(key.clone(), RediskKeyValue {
+                    mounted: true,
+                    offset: None,
+                    ttl: None,
+                    deleted: false,
+                    value: vec![]
+                })
+            }
+        }
     }
 
     pub fn is_mounted(&self, key: &str) -> bool {
-        self.mounted_keys.contains(key)
+        self.map.get(key).map_or(false, |v| v.mounted)
     }
 
-    pub fn unmount(&mut self, key: &str) -> Option<(TTL, RediskValue)> {
-        self.mounted_keys.remove(key);
-        self.map.remove(key)
+    pub fn unmount(&mut self, key: &str) -> Option<RediskKeyValue> {
+        match self.map.get_mut(key) {
+            Some(v) => {
+                v.mounted = false;
+                self.map.insert(key.to_string(), *v);
+                None
+            },
+            None => None,
+        }
     }
 
-    pub fn set(&mut self, key: String, value: RediskValue, ttl: TTL) -> Option<(TTL, RediskValue)> {
+    pub fn set(&mut self, key: String, value: RediskValue, ttl: TTL) -> Option<RediskKeyValue> {
         let expiration = get_next_timestamp_by_duration(ttl);
-        self.map.insert(key.clone(), (expiration, value))
+        match self.map.get_mut(&key) {
+            Some(v) => {
+                v.ttl = expiration;
+                v.value = value;
+                self.map.insert(key.clone(), *v);
+                None
+            },
+            None => {
+                self.map.insert(key.clone(), RediskKeyValue {
+                    mounted: false,
+                    offset: None,
+                    ttl: expiration,
+                    deleted: false,
+                    value
+                })
+            }
+        }
     }
 
-    pub fn get(&mut self, key: String) -> Option<(TTL, RediskValue)> {
-        let existing = self.map.get(&key);
-        match existing {
+    pub fn get(&mut self, key: String) -> Option<RediskKeyValue> {
+        match self.map.get(&key) {
             Some(existing) => {
-                if let Some(ttl) = existing.0 {
+                if let Some(ttl) = existing.ttl {
                     if ttl < get_now() {
-                        // TODO clean expired keys from the map
+                        self.map.remove(&key);
                         return None;
                     }
                 }
-                Some(existing.clone())
+                Some(*existing)
             }
             None => None,
         }
     }
 
-    pub fn delete(&mut self, key: String) -> Option<RediskValue> {
-        self.map.remove(&key).map(|(_, value)| value)
+    pub fn delete(&mut self, key: String) -> Option<RediskKeyValue> {
+        self.map.remove(&key)
     }
 
-    pub fn expire(&mut self, key: String, ttl: TTL) -> Option<RediskValue> {
-        let existing = self.map.get_mut(&key);
-        match existing {
+    pub fn expire(&mut self, key: String, ttl: TTL) -> Option<RediskKeyValue> {
+        match self.map.get_mut(&key) {
             Some(v) => {
                 let expiration = get_next_timestamp_by_duration(ttl);
-                v.0 = expiration;
-                Some(v.1.clone())
+                v.ttl = expiration;
+                Some(v.clone())
             },
             None => None
         }
     }
 
-    pub fn persist(&mut self, key: String) -> Option<RediskValue> {
-        let existing = self.map.get_mut(&key);
-        match existing {
+    pub fn persist(&mut self, key: String) -> Option<RediskKeyValue> {
+        match self.map.get_mut(&key) {
             Some(v) => {
-                v.0 = None;
-                Some(v.1.clone())
+                v.ttl = None;
+                Some(v.clone())
             },
             None => None
         }

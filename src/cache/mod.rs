@@ -1,7 +1,7 @@
 mod redisk_map;
 
 use crate::cache::redisk_map::RediskMap;
-use crate::server::{RediskValue, TTL};
+use crate::server::{RediskKeyValue, RediskValue, TTL};
 
 pub struct CacheLayer {
     cache: Vec<RediskMap>,
@@ -21,14 +21,14 @@ impl CacheLayer {
         }
     }
 
-    pub fn mount(&mut self, db: u32, key: &str) {
+    pub fn mount(&mut self, db: u32, key: &str) -> Option<RediskKeyValue> {
         match self.cache.get_mut(db as usize) {
             Some(map) => map.mount(key.to_string()),
-            None => (),
+            None => None,
         }
     }
 
-    pub fn unmount(&mut self, db: u32, key: &str) -> Option<(TTL, RediskValue)> {
+    pub fn unmount(&mut self, db: u32, key: &str) -> Option<RediskKeyValue> {
         match self.cache.get_mut(db as usize) {
             Some(cache) => {
                 cache.unmount(key)
@@ -46,7 +46,7 @@ impl CacheLayer {
         }
     }
 
-    pub fn get(&mut self, db: u32, key: &str) -> Option<(TTL, RediskValue)> {
+    pub fn get(&mut self, db: u32, key: &str) -> Option<RediskKeyValue> {
         match self.cache.get_mut(db as usize) {
             Some(cache) => {
                 cache.get(key.to_string())
@@ -55,7 +55,7 @@ impl CacheLayer {
         }
     }
 
-    pub fn set(&mut self, db: u32, key: String, value: RediskValue, ttl: TTL) -> Option<(TTL, RediskValue)> {
+    pub fn set(&mut self, db: u32, key: String, value: RediskValue, ttl: TTL) -> Option<RediskKeyValue> {
         match self.cache.get_mut(db as usize) {
             Some(cache) => {
                 cache.set(key.to_string(), value, ttl)
@@ -64,7 +64,7 @@ impl CacheLayer {
         }
     }
 
-    pub fn delete(&mut self, db: u32, key: &str) -> Option<RediskValue> {
+    pub fn delete(&mut self, db: u32, key: &str) -> Option<RediskKeyValue> {
         match self.cache.get_mut(db as usize) {
             Some(cache) => {
                 cache.delete(key.to_string())
@@ -73,7 +73,7 @@ impl CacheLayer {
         }
     }
 
-    pub fn expire(&mut self, db: u32, key: &str, ttl: TTL) -> Option<RediskValue> {
+    pub fn expire(&mut self, db: u32, key: &str, ttl: TTL) -> Option<RediskKeyValue> {
         match self.cache.get_mut(db as usize) {
             Some(cache) => {
                 cache.expire(key.to_string(), ttl)
@@ -82,7 +82,7 @@ impl CacheLayer {
         }
     }
 
-    pub fn persist(&mut self, db: u32, key: &str) -> Option<RediskValue> {
+    pub fn persist(&mut self, db: u32, key: &str) -> Option<RediskKeyValue> {
         match self.cache.get_mut(db as usize) {
             Some(cache) => {
                 cache.persist(key.to_string())
