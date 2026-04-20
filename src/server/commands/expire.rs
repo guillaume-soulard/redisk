@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
-use crate::server::RediskCommandContext;
+use crate::server::{RediskCommandContext, TTL};
 use crate::server::commands::Command;
 
 pub struct Expire;
@@ -12,7 +12,7 @@ impl Command for Expire {
 
     fn execute<'a>(
         &self,
-        context: &'a RediskCommandContext,
+        context: &'a mut RediskCommandContext,
     ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'a>> {
         Box::pin(async move {
             if context.args.len() != 3 {
@@ -25,10 +25,9 @@ impl Command for Expire {
                 Err(_) => return context.redisk_protocol.serialize_error("value is not an integer or out of range"),
             };
 
-            match context.expire(key, seconds) {
-                Ok(true) => context.redisk_protocol.serialize_integer(1),
-                Ok(false) => context.redisk_protocol.serialize_integer(0),
-                Err(e) => context.redisk_protocol.serialize_error(&format!("storage error: {}", e)),
+            match context.expire(key, TTL::from(seconds)) {
+                Some(_) => context.redisk_protocol.serialize_integer(1),
+                None => context.redisk_protocol.serialize_integer(0),
             }
         })
     }

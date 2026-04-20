@@ -20,7 +20,10 @@ impl Command for Keys {
             }
             let pattern = &context.args[1];
 
-            match context.keys(pattern) {
+            context.iter()
+                .filter(|k| k.)
+
+            match context.iter() {
                 Ok(keys) => {
                     let mut serialized_keys = Vec::new();
                     for key in keys {

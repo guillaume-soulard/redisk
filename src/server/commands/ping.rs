@@ -12,7 +12,7 @@ impl Command for Ping {
 
     fn execute<'a>(
         &self,
-        context: &'a RediskCommandContext,
+        context: &'a mut RediskCommandContext,
     ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'a>> {
         Box::pin(async move {
             match context.args.len() {

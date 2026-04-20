@@ -23,12 +23,19 @@ pub type TTL = Option<u64>;
 pub type RediskValue = Vec<u8>;
 
 #[derive(Clone)]
+pub struct RediskStorageAddress {
+    pub file : String,
+    pub offset : u64,
+}
+
+#[derive(Clone)]
 pub struct RediskKeyValue {
     pub value: RediskValue,
     pub offset: Option<u64>,
     pub mounted: bool,
     pub deleted: bool,
     pub ttl: TTL,
+    pub storage_address: Option<RediskStorageAddress>,
 }
 
 impl RediskCommandContext<'_> {

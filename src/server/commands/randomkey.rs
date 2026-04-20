@@ -19,7 +19,7 @@ impl Command for RandomKey {
                 return context.redisk_protocol.serialize_error("wrong number of arguments for 'randomkey' command");
             }
 
-            match context.randomkey() {
+            match context.iter() {
                 Ok(Some(key)) => context.redisk_protocol.serialize_bulk_string(&key),
                 Ok(None) => context.redisk_protocol.serialize_null(),
                 Err(e) => context.redisk_protocol.serialize_error(&format!("storage error: {}", e)),
