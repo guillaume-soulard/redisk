@@ -1,8 +1,7 @@
+use crate::server::RediskCommandContext;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use compact::Compact;
-use crate::server::RediskCommandContext;
 
 pub mod get;
 pub mod set;
@@ -19,13 +18,12 @@ pub mod type_cmd;
 pub mod rename;
 pub mod randomkey;
 pub mod move_cmd;
-mod compact;
 
 pub trait Command: Send + Sync {
     fn name(&self) -> String;
     fn execute<'a>(
         &self,
-        context: &'a RediskCommandContext,
+        context: &'a mut RediskCommandContext,
     ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'a>>;
 }
 
@@ -43,7 +41,6 @@ fn get_command_list() -> Vec<Box<dyn Command>> {
         Box::new(Set),
         Box::new(Del),
         Box::new(Ping),
-        Box::new(Compact),
         Box::new(Ttl),
         Box::new(Pttl),
         Box::new(Exists),
@@ -58,18 +55,18 @@ fn get_command_list() -> Vec<Box<dyn Command>> {
     ]
 }
 
-pub use get::Get;
-pub use set::Set;
 pub use del::Del;
-pub use ping::Ping;
-pub use ttl::Ttl;
-pub use pttl::Pttl;
 pub use exists::Exists;
 pub use expire::Expire;
-pub use persist::Persist;
+pub use get::Get;
 pub use keys::Keys;
-pub use scan::Scan;
-pub use type_cmd::Type;
-pub use rename::Rename;
-pub use randomkey::RandomKey;
 pub use move_cmd::Move;
+pub use persist::Persist;
+pub use ping::Ping;
+pub use pttl::Pttl;
+pub use randomkey::RandomKey;
+pub use rename::Rename;
+pub use scan::Scan;
+pub use set::Set;
+pub use ttl::Ttl;
+pub use type_cmd::Type;

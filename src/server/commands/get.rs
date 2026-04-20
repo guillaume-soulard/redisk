@@ -12,7 +12,7 @@ impl Command for Get {
 
     fn execute<'a>(
         &self,
-        context: &'a RediskCommandContext,
+        context: &'a mut RediskCommandContext,
     ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'a>> {
         Box::pin(async move {
             if context.args.len() != 2 {
@@ -21,11 +21,10 @@ impl Command for Get {
             let key = &context.args[1];
 
             match context.get(key) {
-                Ok(Some(value)) => {
-                    context.redisk_protocol.serialize_bulk_string(&String::from_utf8_lossy(&value))
+                Some(value) => {
+                    context.redisk_protocol.serialize_bulk_string(&String::from_utf8_lossy(value.value.as_slice()))
                 }
-                Ok(None) => context.redisk_protocol.serialize_null(),
-                Err(e) => context.redisk_protocol.serialize_error(&format!("storage error: {}", e)),
+                None => context.redisk_protocol.serialize_null()
             }
         })
     }

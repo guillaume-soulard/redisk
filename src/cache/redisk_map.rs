@@ -15,24 +15,27 @@ impl RediskMap {
     }
 
     pub fn iter(&self) -> impl Iterator<Item=(&String, &RediskKeyValue)> {
+        let now = get_now();
         self.map.iter()
-            .filter(|(_, v)| *v.ttl.is_none() || *v.ttl.unwrap() > SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs())
+            .filter(move |(_, v)| v.ttl.is_none() || v.ttl.unwrap() > now)
     }
 
     pub fn mount(&mut self, key: String) -> Option<RediskKeyValue> {
         match self.map.get_mut(&key) {
             Some(v) => {
                 v.mounted = true;
-                self.map.insert(key, *v)
+                Some(v.clone())
             }
             None => {
-                self.map.insert(key.clone(), RediskKeyValue {
+                let val = RediskKeyValue {
                     mounted: true,
                     offset: None,
                     ttl: None,
                     deleted: false,
                     value: vec![]
-                })
+                };
+                self.map.insert(key, val.clone());
+                Some(val)
             }
         }
     }
@@ -42,11 +45,11 @@ impl RediskMap {
     }
 
     pub fn unmount(&mut self, key: &str) -> Option<RediskKeyValue> {
-        match self.map.get_mut(key) {
+        let value = self.map.get_mut(key);
+        match value {
             Some(v) => {
-                v.mounted = false;
-                self.map.insert(key.to_string(), *v);
-                None
+                (*v).mounted = false;
+                Some(v.clone())
             },
             None => None,
         }
@@ -58,34 +61,32 @@ impl RediskMap {
             Some(v) => {
                 v.ttl = expiration;
                 v.value = value;
-                self.map.insert(key.clone(), *v);
                 None
             },
             None => {
-                self.map.insert(key.clone(), RediskKeyValue {
+                self.map.insert(key, RediskKeyValue {
                     mounted: false,
                     offset: None,
                     ttl: expiration,
                     deleted: false,
                     value
-                })
+                });
+                None
             }
         }
     }
 
     pub fn get(&mut self, key: String) -> Option<RediskKeyValue> {
-        match self.map.get(&key) {
-            Some(existing) => {
-                if let Some(ttl) = existing.ttl {
-                    if ttl < get_now() {
-                        self.map.remove(&key);
-                        return None;
-                    }
+        if let Some(existing) = self.map.get(&key) {
+            if let Some(ttl) = existing.ttl {
+                if ttl < get_now() {
+                    self.map.remove(&key);
+                    return None;
                 }
-                Some(*existing)
             }
-            None => None,
+            return Some(existing.clone());
         }
+        None
     }
 
     pub fn delete(&mut self, key: String) -> Option<RediskKeyValue> {

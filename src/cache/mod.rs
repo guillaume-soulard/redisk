@@ -14,7 +14,7 @@ impl CacheLayer {
         }
     }
 
-    pub fn iter(&self, db: u32) -> Box<dyn Iterator<Item = (&String, &(TTL, RediskValue))> + '_> {
+    pub fn iter(&self, db: u32) -> Box<dyn Iterator<Item = (&String, &RediskKeyValue)> + '_> {
         match self.cache.get(db as usize) {
             Some(map) => Box::new(map.iter()),
             None => Box::new(std::iter::empty()),
