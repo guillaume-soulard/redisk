@@ -32,7 +32,8 @@ impl RediskMap {
                     offset: None,
                     ttl: None,
                     deleted: false,
-                    value: vec![]
+                    value: vec![],
+                    storage_address: None,
                 };
                 self.map.insert(key, val.clone());
                 Some(val)
@@ -69,7 +70,8 @@ impl RediskMap {
                     offset: None,
                     ttl: expiration,
                     deleted: false,
-                    value
+                    value,
+                    storage_address: None,
                 });
                 None
             }
