@@ -19,12 +19,10 @@ impl Command for Del {
                 return context.redisk_protocol.serialize_error("wrong number of arguments for 'del' command");
             }
             let mut count = 0;
-            for key in context.args.iter().skip(1) {
+            for key in context.args.clone().iter().skip(1) {
                 match context.delete(key) {
-                    Ok(_) => count += 1,
-                    Err(e) => {
-                        return context.redisk_protocol.serialize_error(&format!("storage error: {}", e));
-                    },
+                    Some(_) => count += 1,
+                    None => {},
                 }
             }
             context.redisk_protocol.serialize_integer(count)

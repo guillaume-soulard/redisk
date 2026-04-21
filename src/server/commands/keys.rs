@@ -1,7 +1,7 @@
-use std::future::Future;
-use std::pin::Pin;
 use crate::server::RediskCommandContext;
 use crate::server::commands::Command;
+use std::future::Future;
+use std::pin::Pin;
 
 pub struct Keys;
 
@@ -16,23 +16,21 @@ impl Command for Keys {
     ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'a>> {
         Box::pin(async move {
             if context.args.len() != 2 {
-                return context.redisk_protocol.serialize_error("wrong number of arguments for 'keys' command");
+                return context
+                    .redisk_protocol
+                    .serialize_error("wrong number of arguments for 'keys' command");
             }
             let pattern = &context.args[1];
+            let keys = context
+                .iter()
+                .filter(|k| (*k).0.contains(pattern))
+                .map(|k| k.0.clone());
 
-            context.iter()
-                .filter(|k| k.)
-
-            match context.iter() {
-                Ok(keys) => {
-                    let mut serialized_keys = Vec::new();
-                    for key in keys {
-                        serialized_keys.push(context.redisk_protocol.serialize_bulk_string(&key));
-                    }
-                    context.redisk_protocol.serialize_array(&serialized_keys)
-                }
-                Err(e) => context.redisk_protocol.serialize_error(&format!("storage error: {}", e)),
+            let mut serialized_keys = Vec::new();
+            for key in keys {
+                serialized_keys.push(context.redisk_protocol.serialize_bulk_string(&key));
             }
+            context.redisk_protocol.serialize_array(&serialized_keys)
         })
     }
 }

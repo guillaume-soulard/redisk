@@ -19,12 +19,11 @@ impl Command for Persist {
                 return context.redisk_protocol.serialize_error("wrong number of arguments for 'persist' command");
             }
             
-            let key = &context.args[1];
+            let key = &context.args[1].clone();
 
             match context.persist(key) {
-                Ok(true) => context.redisk_protocol.serialize_integer(1),
-                Ok(false) => context.redisk_protocol.serialize_integer(0),
-                Err(e) => context.redisk_protocol.serialize_error(&format!("storage error: {}", e)),
+                Some(_) => context.redisk_protocol.serialize_integer(1),
+                None => context.redisk_protocol.serialize_integer(0),
             }
         })
     }

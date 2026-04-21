@@ -1,16 +1,25 @@
 use crate::server::{RediskKeyValue, RediskValue, TTL};
 use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
 pub struct RediskMap {
     map: HashMap<String, RediskKeyValue>,
+    file: File,
 }
 
 impl RediskMap {
-    pub fn new() -> Self {
+    pub fn new(db: u32) -> Self {
+        let path = format!("db{}.rdat", db);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&path).unwrap();
         Self {
             map: HashMap::new(),
+            file
         }
     }
 
@@ -108,11 +117,11 @@ impl RediskMap {
 
     pub fn persist(&mut self, key: String) -> Option<RediskKeyValue> {
         match self.map.get_mut(&key) {
-            Some(v) => {
+            Some(v) if v.ttl.is_some() => {
                 v.ttl = None;
                 Some(v.clone())
             },
-            None => None
+            _ => None
         }
     }
 }

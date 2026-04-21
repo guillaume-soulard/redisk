@@ -19,7 +19,7 @@ impl Command for Expire {
                 return context.redisk_protocol.serialize_error("wrong number of arguments for 'expire' command");
             }
             
-            let key = &context.args[1];
+            let key = &context.args[1].clone();
             let seconds = match context.args[2].parse::<u64>() {
                 Ok(s) => s,
                 Err(_) => return context.redisk_protocol.serialize_error("value is not an integer or out of range"),

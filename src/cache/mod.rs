@@ -8,9 +8,9 @@ pub struct CacheLayer {
 }
 
 impl CacheLayer {
-    pub fn new(nb_db: usize) -> Self {
+    pub fn new(nb_db: u32) -> Self {
         Self {
-            cache: (0..nb_db).map(|_| RediskMap::new()).collect(),
+            cache: (0..nb_db).map(|db| RediskMap::new(db)).collect(),
         }
     }
 

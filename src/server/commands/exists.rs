@@ -20,11 +20,10 @@ impl Command for Exists {
             }
             
             let mut count = 0;
-            for key in context.args.iter().skip(1) {
-                match context.exists(key) {
-                    Ok(true) => count += 1,
-                    Ok(false) => {},
-                    Err(e) => return context.redisk_protocol.serialize_error(&format!("storage error: {}", e)),
+            for key in context.args.clone().iter().skip(1) {
+                match context.get(key) {
+                    Some(_) => count += 1,
+                    None => {},
                 }
             }
 

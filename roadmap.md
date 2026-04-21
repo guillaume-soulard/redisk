@@ -15,10 +15,10 @@ Ce document liste les commandes Redis standard et indique leur statut d'impléme
 - ✅ **EXPIRE** : Définit un délai d'expiration sur une clé.
 - ✅ **KEYS** : Trouve toutes les clés correspondant à un motif.
 - ✅ **SELECT** : Sélectionne la base de données courante.
-- ✅ **MOVE** : Déplace une clé vers une autre base de données.
+- ❌ **MOVE** : Déplace une clé vers une autre base de données.
 - ✅ **PERSIST** : Supprime le délai d'expiration d'une clé.
 - ✅ **PTTL** : Renvoie le temps restant avant expiration en millisecondes.
-- ✅ **RANDOMKEY** : Renvoie une clé aléatoire.
+- ❌ **RANDOMKEY** : Renvoie une clé aléatoire.
 - ✅ **RENAME** : Renomme une clé.
 - ✅ **SCAN** : Itère sur l'ensemble des clés.
 - ✅ **TTL** : Renvoie le temps restant avant expiration en secondes.

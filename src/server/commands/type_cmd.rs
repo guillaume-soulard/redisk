@@ -18,7 +18,7 @@ impl Command for Type {
             if context.args.len() != 2 {
                 return context.redisk_protocol.serialize_error("wrong number of arguments for 'type' command");
             }
-            let key = &context.args[1];
+            let key = &context.args[1].clone();
 
             match context.get(key) {
                 Some(_) => context.redisk_protocol.serialize_simple_string(&String::from("string")),

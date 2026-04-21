@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
-use crate::server::RediskCommandContext;
+use crate::server::{RediskCommandContext, RediskValue};
 use crate::server::commands::Command;
 
 pub struct Set;
@@ -19,7 +19,7 @@ impl Command for Set {
                 return context.redisk_protocol.serialize_error("wrong number of arguments for 'set' command");
             }
             let key = context.args[1].clone();
-            let value = context.args[2].as_bytes().to_vec();
+            let value = context.args[2].as_bytes().to_vec() as RediskValue;
             let mut ttl = None;
 
             if context.args.len() == 5 {
@@ -34,12 +34,12 @@ impl Command for Set {
                 }
             }
 
-            match context.set(&key, &value, ttl) {
-                Ok(_) => {
+            match context.set(&key, value, ttl) {
+                Some(_) => {
                     context.redisk_protocol.serialize_ok()
                 }
-                Err(e) => {
-                    context.redisk_protocol.serialize_error(&format!("storage error: {}", e))
+                None => {
+                    context.redisk_protocol.serialize_error(&"key not set:")
                 }
             }
         })

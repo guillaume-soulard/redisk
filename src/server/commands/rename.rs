@@ -12,28 +12,26 @@ impl Command for Rename {
 
     fn execute<'a>(
         &self,
-        context: &'a RediskCommandContext,
+        context: &'a mut RediskCommandContext,
     ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'a>> {
         Box::pin(async move {
             if context.args.len() != 3 {
                 return context.redisk_protocol.serialize_error("wrong number of arguments for 'rename' command");
             }
-            let old_key = &context.args[1];
-            let new_key = &context.args[2];
+            let old_key = &context.args[1].clone();
+            let new_key = &context.args[2].clone();
 
             if old_key == new_key {
                 return context.redisk_protocol.serialize_ok();
             }
 
-            match context.rename(old_key, new_key) {
-                Ok(_) => context.redisk_protocol.serialize_ok(),
-                Err(e) => {
-                    if e.to_string() == "no such key" {
-                        context.redisk_protocol.serialize_error("no such key")
-                    } else {
-                        context.redisk_protocol.serialize_error(&format!("storage error: {}", e))
-                    }
-                }
+            match context.get(old_key) {
+                Some(old) => {
+                    context.set(new_key, old.value, old.ttl);
+                    context.delete(old_key);
+                    context.redisk_protocol.serialize_ok()
+                },
+                None => context.redisk_protocol.serialize_error("no such key"),
             }
         })
     }

@@ -16,8 +16,6 @@ pub mod keys;
 pub mod scan;
 pub mod type_cmd;
 pub mod rename;
-pub mod randomkey;
-pub mod move_cmd;
 
 pub trait Command: Send + Sync {
     fn name(&self) -> String;
@@ -50,8 +48,6 @@ fn get_command_list() -> Vec<Box<dyn Command>> {
         Box::new(Scan),
         Box::new(Type),
         Box::new(Rename),
-        Box::new(RandomKey),
-        Box::new(Move),
     ]
 }
 
@@ -60,11 +56,9 @@ pub use exists::Exists;
 pub use expire::Expire;
 pub use get::Get;
 pub use keys::Keys;
-pub use move_cmd::Move;
 pub use persist::Persist;
 pub use ping::Ping;
 pub use pttl::Pttl;
-pub use randomkey::RandomKey;
 pub use rename::Rename;
 pub use scan::Scan;
 pub use set::Set;

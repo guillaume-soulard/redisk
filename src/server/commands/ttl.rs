@@ -1,7 +1,7 @@
+use crate::server::commands::Command;
+use crate::server::RediskCommandContext;
 use std::future::Future;
 use std::pin::Pin;
-use crate::server::RediskCommandContext;
-use crate::server::commands::Command;
 
 pub struct Ttl;
 
@@ -18,7 +18,8 @@ impl Command for Ttl {
             if context.args.len() != 2 {
                 return context.redisk_protocol.serialize_error("wrong number of arguments for 'ttl' command");
             }
-            let key = &context.args[1];
+
+            let key = &context.args[1].clone();
 
             match context.get(key) {
                 Some(value) => {

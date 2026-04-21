@@ -12,7 +12,7 @@ impl Command for Scan {
 
     fn execute<'a>(
         &self,
-        context: &'a RediskCommandContext,
+        context: &'a mut RediskCommandContext,
     ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'a>> {
         Box::pin(async move {
             if context.args.len() < 2 {
@@ -52,22 +52,24 @@ impl Command for Scan {
                 }
             }
 
-            match context.scan(cursor, pattern, count) {
-                Ok((next_cursor, keys)) => {
-                    let mut serialized_keys = Vec::new();
-                    for key in keys {
-                        serialized_keys.push(context.redisk_protocol.serialize_bulk_string(&key));
-                    }
-                    let keys_array = context.redisk_protocol.serialize_array(&serialized_keys);
-                    
-                    let result_array = vec![
-                        context.redisk_protocol.serialize_bulk_string(&next_cursor.to_string()),
-                        keys_array,
-                    ];
-                    context.redisk_protocol.serialize_array(&result_array)
+            let pat = pattern.unwrap();
+            let mut serialized_keys = Vec::new();
+            let mut cnt = 0;
+            for key in context.iter().skip(cursor) {
+                let key_name = key.clone().0;
+                if key_name.contains(&pat) {
+                    serialized_keys.push(context.redisk_protocol.serialize_bulk_string(&key_name));
                 }
-                Err(e) => context.redisk_protocol.serialize_error(&format!("storage error: {}", e)),
+                cnt += 1;
+                if cnt == count {
+                    break;
+                }
             }
+            context.redisk_protocol.serialize_array(&vec![
+                context.redisk_protocol.serialize_integer((cursor + cnt) as i64),
+                context.redisk_protocol.serialize_array(&serialized_keys)
+            ])
+
         })
     }
 }

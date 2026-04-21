@@ -18,7 +18,7 @@ impl Command for Get {
             if context.args.len() != 2 {
                 return context.redisk_protocol.serialize_error("wrong number of arguments for 'get' command");
             }
-            let key = &context.args[1];
+            let key = &context.args[1].clone();
 
             match context.get(key) {
                 Some(value) => {

@@ -2,19 +2,17 @@ mod commands;
 use crate::cache::CacheLayer;
 use crate::protocol::*;
 use crate::server::commands::*;
-use crate::storage::StorageEngine;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 
 struct RediskCommandContext<'a> {
     redisk_protocol: &'a RediskProtocol,
     args: Vec<String>,
     memory: &'a mut CacheLayer,
-    storage: &'a mut StorageEngine,
     db: u32,
 }
 
@@ -24,7 +22,6 @@ pub type RediskValue = Vec<u8>;
 
 #[derive(Clone)]
 pub struct RediskStorageAddress {
-    pub file : String,
     pub offset : u64,
 }
 
@@ -48,9 +45,7 @@ impl RediskCommandContext<'_> {
     }
 
     pub fn iter(&self) -> Box<dyn Iterator<Item = (&String, &RediskKeyValue)> + '_> {
-        let memory_values = self.memory.iter(self.db);
-        // let storage_values = self.storage.lock().unwrap().iter(self.db);
-        memory_values
+        self.memory.iter(self.db)
     }
 
     pub fn get(&mut self, key: &str) -> Option<RediskKeyValue> {
@@ -75,16 +70,14 @@ impl RediskCommandContext<'_> {
 }
 
 pub struct RedisServer {
-    storage: Arc<Mutex<StorageEngine>>,
     cache: Arc<Mutex<CacheLayer>>,
     commands: Arc<HashMap<String, Box<dyn Command>>>,
 }
 
 impl RedisServer {
-    pub fn new(storage: StorageEngine, _cache_size: usize, nb_db: usize) -> Self {
+    pub fn new(_cache_size: usize, nb_db: u32) -> Self {
         let commands: HashMap<String, Box<dyn Command>> = get_commands();
         Self {
-            storage: Arc::new(Mutex::new(storage)),
             cache: Arc::new(Mutex::new(CacheLayer::new(nb_db))),
             commands: Arc::new(commands),
         }
@@ -97,10 +90,9 @@ impl RedisServer {
         loop {
             let (socket, _) = listener.accept().await?;
             let cache = self.cache.clone();
-            let storage = self.storage.clone();
             let commands = self.commands.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(socket, cache, storage, commands).await {
+                if let Err(e) = handle_connection(socket, cache, commands).await {
                     eprintln!("Error handling connection: {}", e);
                 }
             });
@@ -111,7 +103,6 @@ impl RedisServer {
 async fn handle_connection(
     mut socket: TcpStream,
     cache: Arc<Mutex<CacheLayer>>,
-    storage: Arc<Mutex<StorageEngine>>,
     commands: Arc<HashMap<String, Box<dyn Command>>>,
 ) -> Result<()> {
     let mut buffer = vec![0; 1024];
@@ -128,12 +119,10 @@ async fn handle_connection(
             Ok((args, _)) => {
                 let response = {
                     let mut memory_lock = cache.lock().await;
-                    let mut storage_lock = storage.lock().await;
                     let mut context = RediskCommandContext {
                         redisk_protocol: &protocol,
                         args,
                         memory: &mut *memory_lock,
-                        storage: &mut *storage_lock,
                         db: current_db,
                     };
                     let response = handle_command(&mut context, &commands).await;
