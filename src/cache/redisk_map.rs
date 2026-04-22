@@ -71,18 +71,19 @@ impl RediskMap {
             Some(v) => {
                 v.ttl = expiration;
                 v.value = value;
-                None
+                Some(v.clone())
             },
             None => {
-                self.map.insert(key, RediskKeyValue {
+                let new_value = RediskKeyValue {
                     mounted: false,
                     offset: None,
                     ttl: expiration,
                     deleted: false,
                     value,
                     storage_address: None,
-                });
-                None
+                };
+                self.map.insert(key, new_value.clone());
+                Some(new_value)
             }
         }
     }

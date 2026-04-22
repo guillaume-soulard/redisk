@@ -12,8 +12,9 @@ use tokio::sync::Mutex;
 struct RediskCommandContext<'a> {
     redisk_protocol: &'a RediskProtocol,
     args: Vec<String>,
-    memory: &'a mut CacheLayer,
+    storage: &'a mut CacheLayer,
     db: u32,
+    nb_db: u32,
 }
 
 pub type TTL = Option<u64>;
@@ -22,7 +23,7 @@ pub type RediskValue = Vec<u8>;
 
 #[derive(Clone)]
 pub struct RediskStorageAddress {
-    pub offset : u64,
+    pub offset: u64,
 }
 
 #[derive(Clone)]
@@ -37,41 +38,42 @@ pub struct RediskKeyValue {
 
 impl RediskCommandContext<'_> {
     pub fn mount(&mut self, key: &str) -> Option<RediskKeyValue> {
-        self.memory.mount(self.db, key)
+        self.storage.mount(self.db, key)
     }
 
     pub fn unmount(&mut self, key: &str) -> Option<RediskKeyValue> {
-        self.memory.unmount(self.db, key)
+        self.storage.unmount(self.db, key)
     }
 
     pub fn iter(&self) -> Box<dyn Iterator<Item = (&String, &RediskKeyValue)> + '_> {
-        self.memory.iter(self.db)
+        self.storage.iter(self.db)
     }
 
     pub fn get(&mut self, key: &str) -> Option<RediskKeyValue> {
-        self.memory.get(self.db, key)
+        self.storage.get(self.db, key)
     }
 
     pub fn set(&mut self, key: &str, value: RediskValue, ttl: TTL) -> Option<RediskKeyValue> {
-        self.memory.set(self.db, key.to_string(), value, ttl)
+        self.storage.set(self.db, key.to_string(), value, ttl)
     }
 
     pub fn delete(&mut self, key: &str) -> Option<RediskKeyValue> {
-        self.memory.delete(self.db, key)
+        self.storage.delete(self.db, key)
     }
 
     pub fn expire(&mut self, key: &str, ttl: TTL) -> Option<RediskKeyValue> {
-        self.memory.expire(self.db, key, ttl)
+        self.storage.expire(self.db, key, ttl)
     }
 
     pub fn persist(&mut self, key: &str) -> Option<RediskKeyValue> {
-        self.memory.persist(self.db, key)
+        self.storage.persist(self.db, key)
     }
 }
 
 pub struct RedisServer {
     cache: Arc<Mutex<CacheLayer>>,
     commands: Arc<HashMap<String, Box<dyn Command>>>,
+    nb_db: u32,
 }
 
 impl RedisServer {
@@ -80,6 +82,7 @@ impl RedisServer {
         Self {
             cache: Arc::new(Mutex::new(CacheLayer::new(nb_db))),
             commands: Arc::new(commands),
+            nb_db,
         }
     }
 
@@ -91,8 +94,9 @@ impl RedisServer {
             let (socket, _) = listener.accept().await?;
             let cache = self.cache.clone();
             let commands = self.commands.clone();
+            let nb_db = self.nb_db.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(socket, cache, commands).await {
+                if let Err(e) = handle_connection(socket, cache, commands, nb_db).await {
                     eprintln!("Error handling connection: {}", e);
                 }
             });
@@ -104,6 +108,7 @@ async fn handle_connection(
     mut socket: TcpStream,
     cache: Arc<Mutex<CacheLayer>>,
     commands: Arc<HashMap<String, Box<dyn Command>>>,
+    nb_db: u32,
 ) -> Result<()> {
     let mut buffer = vec![0; 1024];
     let mut current_db = 0;
@@ -122,8 +127,9 @@ async fn handle_connection(
                     let mut context = RediskCommandContext {
                         redisk_protocol: &protocol,
                         args,
-                        memory: &mut *memory_lock,
+                        storage: &mut *memory_lock,
                         db: current_db,
+                        nb_db,
                     };
                     let response = handle_command(&mut context, &commands).await;
                     current_db = context.db;

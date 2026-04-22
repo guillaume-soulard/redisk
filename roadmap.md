@@ -9,6 +9,12 @@ Ce document liste les commandes Redis standard et indique leur statut d'impléme
 
 ---
 
+## Commandes spécifiques Redisk
+
+- ❌ **MOUNT** : Monte une clé stockées sur le disque en mémoire et autorise les modifications en mémoire uniquement.
+- ❌ **UNMOUNT** : Persiste la clé sur le disque et libère la mémoire.
+
+
 ## Commandes de Clés (Generic)
 - ✅ **DEL** : Supprime une ou plusieurs clés.
 - ✅ **EXISTS** : Vérifie si une clé existe.
