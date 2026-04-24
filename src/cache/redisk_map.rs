@@ -3,9 +3,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Seek, SeekFrom};
+use std::io::{Seek, SeekFrom, Write};
 use std::ops::Add;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct RediskMap {
     map: HashMap<String, RediskKeyValue>,
@@ -36,39 +36,76 @@ impl RediskMap {
             .read(true)
             .write(true)
             .create(true)
-            .open(&path).unwrap();
+            .open(&path)
+            .unwrap();
 
-            let mut offset = 0;
-            let file_size = file.metadata().unwrap().len();
-            while offset < file_size {
-                match read_record(&mut file, offset) {
-                    Ok(record) => {
-                        let record_size = bincode::serialized_size(&record).unwrap();
-                        let mut value = RediskKeyValue {
-                            value: vec![],
-                            mounted: false,
-                            deleted: false,
-                            ttl: None,
-                            storage_address: Some(RediskStorageAddress{
-                                offset,
-                            }),
-                        };
-                        map.insert(record.key, value);
-                        offset += record_size;
-                    }
-                    Err(_) => break,
+        let mut offset = 0;
+        let file_size = file.metadata().unwrap().len();
+        while offset < file_size {
+            match read_record(&mut file, offset) {
+                Ok(record) => {
+                    let record_size = bincode::serialized_size(&record).unwrap();
+                    let value = RediskKeyValue {
+                        value: vec![],
+                        mounted: false,
+                        deleted: false,
+                        ttl: None,
+                        storage_address: Some(RediskStorageAddress { offset }),
+                    };
+                    map.insert(record.key, value);
+                    offset += record_size;
                 }
+                Err(_) => break,
             }
-
-        Self {
-            map,
-            file
         }
+
+        Self { map, file }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=(&String, &RediskKeyValue)> {
+    fn write_record(
+        &mut self,
+        key: String,
+        value: RediskValue,
+        ttl: TTL,
+        deleted: bool,
+    ) {
+        let expires_at = ttl.map(|t| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + t
+        });
+        let record = Record {
+            key: key.clone(),
+            value,
+            deleted,
+            expires_at,
+        };
+        let offset = self.file.seek(SeekFrom::End(0)).unwrap();
+        match self.map.get_mut(&key) {
+            Some(v) => {
+                v.mounted = false;
+            }
+            None => {
+                let value = RediskKeyValue {
+                    value: vec![],
+                    mounted: false,
+                    deleted: false,
+                    ttl: None,
+                    storage_address: Some(RediskStorageAddress { offset }),
+                };
+                self.map.insert(key, value);
+            }
+        };
+        bincode::serialize_into(&self.file, &record).unwrap();
+        self.file.flush().unwrap();
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &RediskKeyValue)> {
         let now = get_now();
-        self.map.iter()
+        self.map
+            .iter()
             .filter(move |(_, v)| v.ttl.is_none() || v.ttl.unwrap() > now)
     }
 
@@ -76,10 +113,8 @@ impl RediskMap {
         match self.map.get_mut(&key) {
             Some(v) => {
                 match v.clone().storage_address {
-                    Some(address) => {
-                        match read_record(&mut self.file, address.offset) {
-                            Ok(_) | Err(_) => todo!(),
-                        }
+                    Some(address) => match read_record(&mut self.file, address.offset) {
+                        Ok(_) | Err(_) => todo!(),
                     },
                     None => {}
                 }
@@ -109,8 +144,9 @@ impl RediskMap {
         match value {
             Some(v) => {
                 (*v).mounted = false;
+
                 Some(v.clone())
-            },
+            }
             None => None,
         }
     }
@@ -122,7 +158,7 @@ impl RediskMap {
                 v.ttl = expiration;
                 v.value = value;
                 Some(v.clone())
-            },
+            }
             None => {
                 let new_value = RediskKeyValue {
                     mounted: false,
@@ -160,8 +196,8 @@ impl RediskMap {
                 let expiration = get_next_timestamp_by_duration(ttl);
                 v.ttl = expiration;
                 Some(v.clone())
-            },
-            None => None
+            }
+            None => None,
         }
     }
 
@@ -170,25 +206,28 @@ impl RediskMap {
             Some(v) if v.ttl.is_some() => {
                 v.ttl = None;
                 Some(v.clone())
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
 }
 
 fn get_now() -> u64 {
-    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 fn get_next_timestamp_by_duration(ttl: TTL) -> TTL {
     match ttl {
-        Some(t) => {
-            Some(SystemTime::now()
+        Some(t) => Some(
+            SystemTime::now()
                 .add(Duration::from_secs(t))
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
-                .as_secs())
-        },
-        None => None
+                .as_secs(),
+        ),
+        None => None,
     }
 }
