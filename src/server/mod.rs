@@ -29,7 +29,6 @@ pub struct RediskStorageAddress {
 #[derive(Clone)]
 pub struct RediskKeyValue {
     pub value: RediskValue,
-    pub offset: Option<u64>,
     pub mounted: bool,
     pub deleted: bool,
     pub ttl: TTL,

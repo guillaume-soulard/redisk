@@ -1,6 +1,9 @@
-use crate::server::{RediskKeyValue, RediskValue, TTL};
+use crate::server::{RediskKeyValue, RediskStorageAddress, RediskValue, TTL};
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
+use std::io::{Seek, SeekFrom};
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
@@ -9,16 +12,56 @@ pub struct RediskMap {
     file: File,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct Record {
+    pub key: String,
+    pub value: Vec<u8>,
+    pub deleted: bool,
+    pub expires_at: Option<u64>,
+}
+
+fn read_record(file: &mut File, offset: u64) -> Result<Record> {
+    file.seek(SeekFrom::Start(offset))?;
+    match bincode::deserialize_from(file) {
+        Ok(record) => Ok(record),
+        Err(e) => Err(e.into()),
+    }
+}
+
 impl RediskMap {
     pub fn new(db: u32) -> Self {
         let path = format!("db{}.rdat", db);
-        let file = OpenOptions::new()
+        let mut map = HashMap::new();
+        let mut file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .open(&path).unwrap();
+
+            let mut offset = 0;
+            let file_size = file.metadata().unwrap().len();
+            while offset < file_size {
+                match read_record(&mut file, offset) {
+                    Ok(record) => {
+                        let record_size = bincode::serialized_size(&record).unwrap();
+                        let mut value = RediskKeyValue {
+                            value: vec![],
+                            mounted: false,
+                            deleted: false,
+                            ttl: None,
+                            storage_address: Some(RediskStorageAddress{
+                                offset,
+                            }),
+                        };
+                        map.insert(record.key, value);
+                        offset += record_size;
+                    }
+                    Err(_) => break,
+                }
+            }
+
         Self {
-            map: HashMap::new(),
+            map,
             file
         }
     }
@@ -32,13 +75,20 @@ impl RediskMap {
     pub fn mount(&mut self, key: String) -> Option<RediskKeyValue> {
         match self.map.get_mut(&key) {
             Some(v) => {
+                match v.clone().storage_address {
+                    Some(address) => {
+                        match read_record(&mut self.file, address.offset) {
+                            Ok(_) | Err(_) => todo!(),
+                        }
+                    },
+                    None => {}
+                }
                 v.mounted = true;
                 Some(v.clone())
             }
             None => {
                 let val = RediskKeyValue {
                     mounted: true,
-                    offset: None,
                     ttl: None,
                     deleted: false,
                     value: vec![],
@@ -76,7 +126,6 @@ impl RediskMap {
             None => {
                 let new_value = RediskKeyValue {
                     mounted: false,
-                    offset: None,
                     ttl: expiration,
                     deleted: false,
                     value,
