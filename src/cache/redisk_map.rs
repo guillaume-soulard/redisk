@@ -155,8 +155,12 @@ impl RediskMap {
         let expiration = get_next_timestamp_by_duration(ttl);
         match self.map.get_mut(&key) {
             Some(v) => {
-                v.ttl = expiration;
-                v.value = value;
+                if v.mounted {
+                    v.ttl = expiration;
+                    v.value = value;
+                } else {
+                    // TODO: write to disk
+                }
                 Some(v.clone())
             }
             None => {
@@ -175,19 +179,30 @@ impl RediskMap {
 
     pub fn get(&mut self, key: String) -> Option<RediskKeyValue> {
         if let Some(existing) = self.map.get(&key) {
-            if let Some(ttl) = existing.ttl {
-                if ttl < get_now() {
-                    self.map.remove(&key);
-                    return None;
+            if existing.mounted {
+                if let Some(ttl) = existing.ttl {
+                    if ttl < get_now() {
+                        self.map.remove(&key);
+                        return None;
+                    }
                 }
+                return Some(existing.clone());
+            } else {
+                // TODO read from disk
             }
-            return Some(existing.clone());
         }
         None
     }
 
     pub fn delete(&mut self, key: String) -> Option<RediskKeyValue> {
-        self.map.remove(&key)
+        if let Some(existing) = self.map.get_mut(&key) {
+            if existing.mounted {
+                existing.deleted = true;
+            } else {
+                // TODO delete on disk
+            }
+            self.map.remove(&key)
+        }
     }
 
     pub fn expire(&mut self, key: String, ttl: TTL) -> Option<RediskKeyValue> {
