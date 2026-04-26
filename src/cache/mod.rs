@@ -37,15 +37,6 @@ impl CacheLayer {
         }
     }
 
-    pub fn is_mounted(&self, db: u32, key: &str) -> bool {
-        match self.cache.get(db as usize) {
-            Some(cache) => {
-                cache.is_mounted(key)
-            },
-            None => false,
-        }
-    }
-
     pub fn get(&mut self, db: u32, key: &str) -> Option<RediskKeyValue> {
         match self.cache.get_mut(db as usize) {
             Some(cache) => {

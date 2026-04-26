@@ -28,6 +28,64 @@ fn read_record(file: &mut File, offset: u64) -> Result<Record> {
     }
 }
 
+fn read_from_file(file: &mut File, value: RediskKeyValue) -> Option<RediskKeyValue> {
+    match value.storage_address {
+        Some(address) => match read_record(file, address.offset) {
+            Ok(record) => {
+                let value = RediskKeyValue {
+                    value: record.value,
+                    mounted: false,
+                    deleted: record.deleted,
+                    ttl: record.expires_at,
+                    storage_address: Some(address),
+                };
+                Some(value)
+            }
+            Err(_) => None,
+        },
+        None => None,
+    }
+}
+
+fn write_on_file(
+    file: &mut File,
+    map: &mut HashMap<String, RediskKeyValue>,
+    key: String,
+    value: &RediskKeyValue,
+) {
+    let expires_at = value.ttl.map(|t| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + t
+    });
+    let record = Record {
+        key: key.clone(),
+        value: value.value.clone(),
+        deleted: value.deleted,
+        expires_at,
+    };
+    let offset = file.seek(SeekFrom::End(0)).unwrap();
+    match map.get_mut(&key) {
+        Some(v) => {
+            v.mounted = false;
+        }
+        None => {
+            let value = RediskKeyValue {
+                value: vec![],
+                mounted: false,
+                deleted: false,
+                ttl: None,
+                storage_address: Some(RediskStorageAddress { offset }),
+            };
+            map.insert(key, value);
+        }
+    };
+    bincode::serialize_into(&(*file), &record).unwrap();
+    file.flush().unwrap();
+}
+
 impl RediskMap {
     pub fn new(db: u32) -> Self {
         let path = format!("db{}.rdat", db);
@@ -62,46 +120,6 @@ impl RediskMap {
         Self { map, file }
     }
 
-    fn write_record(
-        &mut self,
-        key: String,
-        value: RediskValue,
-        ttl: TTL,
-        deleted: bool,
-    ) {
-        let expires_at = ttl.map(|t| {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                + t
-        });
-        let record = Record {
-            key: key.clone(),
-            value,
-            deleted,
-            expires_at,
-        };
-        let offset = self.file.seek(SeekFrom::End(0)).unwrap();
-        match self.map.get_mut(&key) {
-            Some(v) => {
-                v.mounted = false;
-            }
-            None => {
-                let value = RediskKeyValue {
-                    value: vec![],
-                    mounted: false,
-                    deleted: false,
-                    ttl: None,
-                    storage_address: Some(RediskStorageAddress { offset }),
-                };
-                self.map.insert(key, value);
-            }
-        };
-        bincode::serialize_into(&self.file, &record).unwrap();
-        self.file.flush().unwrap();
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = (&String, &RediskKeyValue)> {
         let now = get_now();
         self.map
@@ -111,16 +129,14 @@ impl RediskMap {
 
     pub fn mount(&mut self, key: String) -> Option<RediskKeyValue> {
         match self.map.get_mut(&key) {
-            Some(v) => {
-                match v.clone().storage_address {
-                    Some(address) => match read_record(&mut self.file, address.offset) {
-                        Ok(_) | Err(_) => todo!(),
-                    },
-                    None => {}
+            Some(v) => match read_from_file(&mut self.file, v.clone()) {
+                Some(r) => {
+                    v.value = r.value;
+                    v.mounted = true;
+                    Some(v.clone())
                 }
-                v.mounted = true;
-                Some(v.clone())
-            }
+                None => None,
+            },
             None => {
                 let val = RediskKeyValue {
                     mounted: true,
@@ -135,31 +151,41 @@ impl RediskMap {
         }
     }
 
-    pub fn is_mounted(&self, key: &str) -> bool {
-        self.map.get(key).map_or(false, |v| v.mounted)
-    }
-
     pub fn unmount(&mut self, key: &str) -> Option<RediskKeyValue> {
-        let value = self.map.get_mut(key);
+        let value: Option<RediskKeyValue>;
+        {
+            value = match self.map.get(key) {
+                Some(v) => Some(v.clone()),
+                None => None,
+            };
+        }
         match value {
-            Some(v) => {
-                (*v).mounted = false;
-
-                Some(v.clone())
+            Some(mut v) => {
+                v.mounted = false;
+                v.value = vec![];
+                write_on_file(&mut self.file, &mut self.map, key.to_string(), &v);
+                self.map.insert(key.to_string(), v.clone());
+                Some(v)
             }
             None => None,
         }
     }
 
-    pub fn set(&mut self, key: String, value: RediskValue, ttl: TTL) -> Option<RediskKeyValue> {
+    pub fn set(&mut self, key: String, new_value: RediskValue, ttl: TTL) -> Option<RediskKeyValue> {
         let expiration = get_next_timestamp_by_duration(ttl);
-        match self.map.get_mut(&key) {
-            Some(v) => {
-                if v.mounted {
-                    v.ttl = expiration;
-                    v.value = value;
-                } else {
-                    // TODO: write to disk
+        let value: Option<RediskKeyValue>;
+        {
+            value = match self.map.get(&key) {
+                Some(v) => Some(v.clone()),
+                None => None,
+            };
+        }
+        match value {
+            Some(mut v) => {
+                v.ttl = expiration;
+                v.value = new_value;
+                if !v.mounted {
+                    write_on_file(&mut self.file, &mut self.map, key.to_string(), &v);
                 }
                 Some(v.clone())
             }
@@ -168,7 +194,7 @@ impl RediskMap {
                     mounted: false,
                     ttl: expiration,
                     deleted: false,
-                    value,
+                    value: new_value,
                     storage_address: None,
                 };
                 self.map.insert(key, new_value.clone());
@@ -179,48 +205,75 @@ impl RediskMap {
 
     pub fn get(&mut self, key: String) -> Option<RediskKeyValue> {
         if let Some(existing) = self.map.get(&key) {
-            if existing.mounted {
+            return if existing.mounted {
                 if let Some(ttl) = existing.ttl {
                     if ttl < get_now() {
                         self.map.remove(&key);
                         return None;
                     }
                 }
-                return Some(existing.clone());
+                Some(existing.clone())
             } else {
-                // TODO read from disk
+                read_from_file(&mut self.file, existing.clone())
             }
         }
         None
     }
 
     pub fn delete(&mut self, key: String) -> Option<RediskKeyValue> {
-        if let Some(existing) = self.map.get_mut(&key) {
-            if existing.mounted {
-                existing.deleted = true;
-            } else {
-                // TODO delete on disk
-            }
-            self.map.remove(&key)
+        let value: Option<RediskKeyValue>;
+        {
+            value = match self.map.get(&key) {
+                Some(v) => Some(v.clone()),
+                None => None,
+            };
         }
+        if let Some(mut existing) = value {
+            existing.deleted = true;
+            if !existing.mounted {
+                write_on_file(&mut self.file, &mut self.map, key.to_string(), &existing);
+            }
+            return self.map.remove(&key);
+        }
+        None
     }
 
     pub fn expire(&mut self, key: String, ttl: TTL) -> Option<RediskKeyValue> {
-        match self.map.get_mut(&key) {
-            Some(v) => {
+        let value: Option<RediskKeyValue>;
+        {
+            value = match self.map.get(&key) {
+                Some(v) => Some(v.clone()),
+                None => None,
+            };
+        }
+        match value {
+            Some(mut v) => {
                 let expiration = get_next_timestamp_by_duration(ttl);
                 v.ttl = expiration;
-                Some(v.clone())
+                if !v.mounted {
+                    write_on_file(&mut self.file, &mut self.map, key.to_string(), &v);
+                }
+                Some(v)
             }
             None => None,
         }
     }
 
     pub fn persist(&mut self, key: String) -> Option<RediskKeyValue> {
-        match self.map.get_mut(&key) {
-            Some(v) if v.ttl.is_some() => {
+        let value: Option<RediskKeyValue>;
+        {
+            value = match self.map.get(&key) {
+                Some(v) => Some(v.clone()),
+                None => None,
+            };
+        }
+        match value {
+            Some(mut v) if v.ttl.is_some() => {
                 v.ttl = None;
-                Some(v.clone())
+                if v.mounted {
+                    write_on_file(&mut self.file, &mut self.map, key.to_string(), &v);
+                }
+                Some(v)
             }
             _ => None,
         }
