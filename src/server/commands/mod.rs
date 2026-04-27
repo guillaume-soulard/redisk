@@ -17,8 +17,9 @@ pub mod scan;
 pub mod type_cmd;
 pub mod rename;
 pub mod select_cmd;
-mod mount;
-mod unmount;
+pub mod mount;
+pub mod unmount;
+pub mod move_cmd;
 
 pub trait Command: Send + Sync {
     fn name(&self) -> String;
@@ -54,6 +55,7 @@ fn get_command_list() -> Vec<Box<dyn Command>> {
         Box::new(SelectCommand),
         Box::new(Mount),
         Box::new(Unmount),
+        Box::new(MoveCommand)
     ]
 }
 
@@ -73,3 +75,4 @@ pub use type_cmd::Type;
 pub use mount::Mount;
 pub use select_cmd::SelectCommand;
 pub use unmount::Unmount;
+pub use move_cmd::MoveCommand;
