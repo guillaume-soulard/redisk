@@ -20,6 +20,7 @@ pub mod select_cmd;
 pub mod mount;
 pub mod unmount;
 pub mod move_cmd;
+pub mod random_key;
 
 pub trait Command: Send + Sync {
     fn name(&self) -> String;
@@ -55,7 +56,8 @@ fn get_command_list() -> Vec<Box<dyn Command>> {
         Box::new(SelectCommand),
         Box::new(Mount),
         Box::new(Unmount),
-        Box::new(MoveCommand)
+        Box::new(MoveCommand),
+        Box::new(RandomKey),
     ]
 }
 
@@ -76,3 +78,4 @@ pub use mount::Mount;
 pub use select_cmd::SelectCommand;
 pub use unmount::Unmount;
 pub use move_cmd::MoveCommand;
+pub use random_key::RandomKey;

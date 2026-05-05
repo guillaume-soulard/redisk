@@ -5,6 +5,7 @@ use crate::server::commands::*;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
+use rand::seq::IteratorRandom;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -44,7 +45,7 @@ impl RediskCommandContext<'_> {
         self.storage.unmount(self.db, key)
     }
 
-    pub fn iter(&self) -> Box<dyn Iterator<Item = (&String, &RediskKeyValue)> + '_> {
+    pub fn iter(&self) -> Box<dyn IteratorRandom<Item = (&String, &RediskKeyValue)> + '_> {
         self.storage.iter(self.db)
     }
 
@@ -66,6 +67,10 @@ impl RediskCommandContext<'_> {
 
     pub fn persist(&mut self, key: &str) -> Option<RediskKeyValue> {
         self.storage.persist(self.db, key)
+    }
+    
+    pub fn db_size(&self) -> usize {
+        self.storage.db_size(self.db)
     }
 }
 

@@ -81,4 +81,8 @@ impl CacheLayer {
             None => None,
         }
     }
+
+    pub fn db_size(&self, db: u32) -> usize {
+        self.cache.len()
+    }
 }

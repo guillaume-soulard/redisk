@@ -6,6 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::ops::Add;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use rand::seq::IteratorRandom;
 
 pub struct RediskMap {
     map: HashMap<String, RediskKeyValue>,
@@ -120,7 +121,7 @@ impl RediskMap {
         Self { map, file }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &RediskKeyValue)> {
+    pub fn iter(&self) -> impl IteratorRandom<Item = (&String, &RediskKeyValue)> {
         let now = get_now();
         self.map
             .iter()
